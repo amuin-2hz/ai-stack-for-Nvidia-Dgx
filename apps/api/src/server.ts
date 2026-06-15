@@ -12,6 +12,8 @@ import {
   compatibilityFor,
   deleteModel,
   getModel,
+  isModelPublished,
+  listDeployments,
   listModels
 } from "./modelRegistry.js";
 import { systemCheck } from "./systemInspector.js";
@@ -125,11 +127,20 @@ route("GET", "/models/:model_id", async (_req, res, params) => {
 route("DELETE", "/models/:model_id", async (_req, res, params) => {
   const model = await getModel(modelsRoot, params.model_id);
   if (!model) return sendJson(res, 404, { detail: "Unknown model: " + params.model_id });
+
+  // 1. Check store for active deployments (vLLM / TRT-LLM loaded models)
   const activeDeployment = (await store.listActiveDeployments()).find(
     (d) => d.model_id === model.id && ["running", "starting", "configured"].includes(d.status)
   );
   if (activeDeployment)
     return sendJson(res, 409, { detail: "Model is currently deployed and cannot be deleted.", deployment: activeDeployment });
+
+  // 2. Check running services (audio service auto-published models)
+  const published = await isModelPublished(model.id);
+  if (published.published)
+    return sendJson(res, 409, { detail: `Model is currently served by the ${published.service_type} service and cannot be deleted. Stop the service or unload the model first.` });
+
+  // 3. Check active tasks
   const activeTask = (await store.listTasks()).find(
     (t) => ["queued", "running"].includes(t.status) &&
       (t.metadata?.model_id === model.id || t.metadata?.alias === model.id || t.metadata?.alias === model.display_name)

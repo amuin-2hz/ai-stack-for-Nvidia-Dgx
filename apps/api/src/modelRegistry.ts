@@ -59,6 +59,23 @@ async function fetchServiceModels(port: number): Promise<string[]> {
   }
 }
 
+/** Check if a disk model ID matches any model ID reported by a running service (case-insensitive fuzzy match) */
+function modelIsServedBy(diskModelId: string, serviceModelIds: string[]): boolean {
+  const normalized = diskModelId.toLowerCase().replace(/[-_]/g, "");
+  if (!normalized) return false;
+  return serviceModelIds.some((serviceId) => {
+    const svcNormalized = serviceId.toLowerCase().replace(/[-_/]/g, "");
+    return normalized.includes(svcNormalized) || svcNormalized.includes(normalized);
+  });
+}
+
+export async function isModelPublished(modelId: string): Promise<{ published: boolean; service_type?: string }> {
+  const audioModels = await fetchServiceModels(servicePorts.audio);
+  if (modelIsServedBy(modelId, audioModels)) return { published: true, service_type: "audio" };
+  // Future: also check vLLM / TRT-LLM /v1/models when those services support it
+  return { published: false };
+}
+
 export async function listDeployments(_modelsRoot: string): Promise<DeploymentRecord[]> {
   const audioModels = await fetchServiceModels(servicePorts.audio);
   return [
