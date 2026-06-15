@@ -45,10 +45,22 @@ export async function deleteModel(modelsRoot: string, modelId: string): Promise<
   return { model_id: modelId, deleted_path: target };
 }
 
-export async function listDeployments(modelsRoot: string): Promise<DeploymentRecord[]> {
-  const audioModels = (await listModels(modelsRoot))
-    .filter((model) => model.capabilities.includes("asr") || model.capabilities.includes("tts"))
-    .map((model) => model.id);
+async function fetchServiceModels(port: number): Promise<string[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`http://localhost:${port}/v1/models`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!response.ok) return [];
+    const payload = await response.json() as { data?: Array<{ id: string }> };
+    return (payload.data ?? []).map((m) => m.id);
+  } catch {
+    return [];
+  }
+}
+
+export async function listDeployments(_modelsRoot: string): Promise<DeploymentRecord[]> {
+  const audioModels = await fetchServiceModels(servicePorts.audio);
   return [
     {
       deployment_id: "svc_audio",
