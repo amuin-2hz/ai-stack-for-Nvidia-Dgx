@@ -1,0 +1,7 @@
+alias	serve_type	model_dir	default_port	max_batch_size	residency
+qwen35-9b	llm	/home/zhenz/ai-stack/models/qwen35-9b	8355	32	resident
+qwen36-35b-a3b	llm	/home/zhenz/ai-stack/models/qwen36-35b-a3b	8357	16	resident_candidate
+qwen35-0p8b	llm	/home/zhenz/ai-stack/models/qwen35-0p8b	8358	32	ondemand
+omnicoder-9b	llm	/home/zhenz/ai-stack/models/omnicoder-9b	8359	16	ondemand
+qwen3-embedding-8b	embedding	/home/zhenz/ai-stack/models/qwen3-embedding-8b	8360	0	ondemand
+qwen3-vl-32b	vl	/home/zhenz/ai-stack/models/qwen3-vl-32b	8356	8	ondemand

@@ -1,0 +1,14 @@
+{
+  "name": "amuin-ai-stack",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix apps/api install && npm --prefix apps/frontend install",
+    "dev": "bash scripts/dev-web.sh",
+    "dev:api": "bash scripts/dev-api.sh",
+    "dev:frontend": "bash scripts/dev-frontend.sh",
+    "build": "npm --prefix apps/api run build && npm --prefix apps/frontend run build",
+    "infra:up": "docker compose -f deploy/compose/docker-compose.yml up -d postgres etcd minio milvus audio-service",
+    "infra:down": "docker compose -f deploy/compose/docker-compose.yml stop postgres etcd minio milvus audio-service"
+  }
+}

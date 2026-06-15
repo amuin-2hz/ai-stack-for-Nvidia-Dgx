@@ -1,0 +1,56 @@
+# ===== 模型文件 (大文件，不推送) =====
+models/
+engines/
+.whisper-cache/
+
+# ===== 缓存 =====
+cache/
+
+# ===== 日志 =====
+logs/
+
+# ===== 临时文件 =====
+tmp/
+
+# ===== Docker 运行时数据 =====
+volumes/
+
+# ===== 运行时状态 =====
+state/
+
+# ===== 构建产物 =====
+dist/
+node_modules/
+.next/
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.model-download-venv/
+
+# ===== 个人笔记 =====
+.obsidian/
+.docs/
+
+# ===== 环境变量（敏感信息） =====
+.env
+.env.local
+.env.*.local
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db

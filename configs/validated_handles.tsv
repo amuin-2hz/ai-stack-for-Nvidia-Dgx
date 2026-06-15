@@ -1,0 +1,4 @@
+alias	model_handle	default_port	max_batch_size	residency
+nvidia-qwen3-14b-fp4	nvidia/Qwen3-14B-FP4	8355	32	resident_fallback
+nvidia-qwen3-8b-fp4	nvidia/Qwen3-8B-FP4	8358	32	resident_fallback
+nvidia-qwen3-30b-a3b-fp4	nvidia/Qwen3-30B-A3B-FP4	8357	16	ondemand_fallback
