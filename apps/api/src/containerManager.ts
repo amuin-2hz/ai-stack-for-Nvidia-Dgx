@@ -222,6 +222,47 @@ export async function containerAction(name: string, action: "start" | "stop" | "
   return { name, action, ok: result.ok, detail: result.stdout || result.stderr };
 }
 
+export async function deleteContainer(key: string): Promise<{ key: string; ok: boolean; steps: string[] }> {
+  const preset = presetForKey(key);
+  if (!preset) return { key, ok: false, steps: ["Unknown container key: " + key] };
+  const steps: string[] = [];
+  let allOk = true;
+
+  // 1. Stop all containers matching this preset's names
+  for (const name of preset.names) {
+    const existing = await dockerContainers();
+    const match = existing.find((c) => c.name === name);
+    if (match) {
+      if (match.state === "running") {
+        const stop = await runCommand("docker", ["stop", name], 15000);
+        steps.push(`stop ${name}: ${stop.ok ? "ok" : stop.stderr}`);
+        if (!stop.ok) allOk = false;
+      }
+      const rm = await runCommand("docker", ["rm", name], 10000);
+      steps.push(`rm ${name}: ${rm.ok ? "ok" : rm.stderr}`);
+      if (!rm.ok) allOk = false;
+    } else {
+      steps.push(`container ${name}: not found (skip)`);
+    }
+  }
+
+  // 2. Remove the Docker image
+  const image = preset.image;
+  if (image && await imageExists(image)) {
+    const rmi = await runCommand("docker", ["rmi", image], 30000);
+    steps.push(`rmi ${image}: ${rmi.ok ? "ok" : rmi.stderr}`);
+    if (!rmi.ok) allOk = false;
+  } else {
+    steps.push(`image ${image}: not found (skip)`);
+  }
+
+  // 3. Prune dangling volumes belonging to this container
+  const volumePrune = await runCommand("docker", ["volume", "prune", "-f", "--filter", "label=com.docker.compose.project=chatbot-net"], 15000);
+  steps.push(`volume prune: ${volumePrune.ok ? "ok" : volumePrune.stderr}`);
+
+  return { key, ok: allOk, steps };
+}
+
 function presetForKey(key: string) {
   return presets.find((preset) => preset.key === key);
 }

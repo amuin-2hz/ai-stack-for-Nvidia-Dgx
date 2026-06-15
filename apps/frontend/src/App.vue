@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { CopyOutlined, DeleteOutlined, FolderOpenOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue';
-import { message, theme as antdTheme } from 'ant-design-vue';
+import { message, Modal, theme as antdTheme } from 'ant-design-vue';
 import zhCN from 'ant-design-vue/es/locale/zh_CN';
 import enUS from 'ant-design-vue/es/locale/en_US';
 
@@ -295,7 +295,33 @@ async function refresh() {
 async function importPlan() { if (!modelUrl.value.trim()) return; importMessage.value = t('parsing'); importPreview.value = null; try { const payload = await api<ImportPreview>('/models/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: modelUrl.value.trim(), provider: 'auto', expected_runtime: downloadRuntime.value }) }); importPreview.value = payload; importMessage.value = [t('provider') + ': ' + payload.model?.provider, t('repo') + ': ' + payload.model?.repo_id, t('target') + ': ' + payload.model?.target_path, payload.download?.command ? t('command') + ': ' + payload.download.command : payload.message].filter(Boolean).join('\n'); } catch (error) { importMessage.value = String(error); } }
 async function startDownload() { if (!modelUrl.value.trim()) return; importMessage.value = t('startingDownload'); try { const payload = await api<any>('/downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: modelUrl.value.trim(), provider: 'auto', expected_runtime: downloadRuntime.value }) }); importMessage.value = t('downloadTaskStarted') + ': ' + payload.task.id + '\n' + t('log') + ': ' + payload.task.log_path; selectedTaskId.value = payload.task.id; view.value = 'tasks'; await refresh(); await loadTaskLog(payload.task.id); } catch (error) { importMessage.value = String(error); } }
 async function openModelFolder(model: ModelRecord) { await api('/models/' + encodeURIComponent(model.id) + '/open-folder', { method: 'POST' }); }
-async function deleteLocalModel(model: ModelRecord) { if (!canDeleteModel(model)) { message.warning(t('deleteBlocked')); return; } if (!window.confirm(t('deleteConfirm') + model.display_name)) return; const hide = message.loading(t('deleting'), 0); try { await api('/models/' + encodeURIComponent(model.id), { method: 'DELETE' }); message.success(t('deleted')); await refresh(); } catch (error) { message.error(error instanceof Error ? error.message : String(error)); } finally { hide(); } }
+async function deleteLocalModel(model: ModelRecord) {
+  if (!canDeleteModel(model)) { message.warning(t('deleteBlocked')); return; }
+  Modal.confirm({
+    title: locale.value === 'zh-CN' ? '确认删除模型' : 'Confirm Delete Model',
+    content: [
+      t('modelName') + ': ' + model.display_name,
+      t('path') + ': ' + model.local.path,
+      t('size') + ': ' + formatBytes(model.local.size_bytes),
+      t('format') + ': ' + model.local.format,
+      t('files') + ': ' + model.local.file_count + ' files, ' + model.local.weight_files + ' weights',
+    ].join('\\n'),
+    okText: locale.value === 'zh-CN' ? '确认删除' : 'Confirm Delete',
+    okType: 'danger',
+    cancelText: locale.value === 'zh-CN' ? '取消' : 'Cancel',
+    width: 520,
+    onOk: async () => {
+      const hide = message.loading(t('deleting'), 0);
+      try {
+        await api('/models/' + encodeURIComponent(model.id), { method: 'DELETE' });
+        message.success(t('deleted'));
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : String(error));
+      } finally { hide(); }
+    }
+  });
+}
 async function deployModelTo(model: ModelRecord, container: ContainerRecord) {
   selectedContainerKey.value = container.key;
   const serviceType = container.runtime as ServiceType;
@@ -320,6 +346,29 @@ async function loadContainerLogs(name = actionTargetName(selectedContainer.value
 async function runContainerAction(container: ContainerRecord, action: 'start' | 'stop' | 'restart') { try { const target = actionTargetName(container); const payload = await api<{ ok?: boolean; detail?: string }>('/containers/' + encodeURIComponent(target) + '/' + action, { method: 'POST' }); if (payload.ok === false) { message.warning(payload.detail || t('actionFailed')); return; } message.success(payload.detail || t('actionSucceeded')); await refresh(); if (container.state !== 'missing') await loadContainerLogs(target); } catch (error) { message.error(error instanceof Error ? error.message : String(error)); } }
 async function prepareContainerImage(container: ContainerRecord) { const payload = await api<any>('/containers/' + encodeURIComponent(container.key) + '/pull-image', { method: 'POST' }); if (payload.task?.id) { selectedTaskId.value = payload.task.id; await loadTaskLog(payload.task.id); } message.success(t('actionSucceeded')); await refresh(); }
 async function testContainerImage(container: ContainerRecord) { const payload = await api<any>('/containers/' + encodeURIComponent(container.key) + '/test-image', { method: 'POST' }); if (payload.task?.id) { selectedTaskId.value = payload.task.id; await loadTaskLog(payload.task.id); } message.success(t('actionSucceeded')); await refresh(); }
+async function deleteContainerConfirm(container: ContainerRecord) {
+  if (!container.preset) { message.warning(locale.value === 'zh-CN' ? '仅内置容器模板支持删除' : 'Only preset container templates can be deleted'); return; }
+  Modal.confirm({
+    title: locale.value === 'zh-CN' ? '确认删除容器模板' : 'Confirm Delete Container Template',
+    content: locale.value === 'zh-CN'
+      ? `即将删除容器「${container.title}（${container.name}）」：\n\n• Docker 容器\n• Docker 镜像（${container.image}）\n• 关联数据卷\n• 运行时缓存\n\n此操作不可撤销。删除后需重新拉取镜像并创建容器。`
+      : `This will delete container "${container.title} (${container.name})":\n\n• Docker container\n• Docker image (${container.image})\n• Associated volumes\n• Runtime cache\n\nThis action cannot be undone. You will need to re-pull the image and recreate the container.`,
+    okText: locale.value === 'zh-CN' ? '确认删除并清理 Docker 资源' : 'Delete & Clean Docker Resources',
+    okType: 'danger',
+    cancelText: locale.value === 'zh-CN' ? '取消' : 'Cancel',
+    width: 560,
+    onOk: async () => {
+      const hide = message.loading(t('deleting'), 0);
+      try {
+        const result = await api<{ ok: boolean; steps: string[] }>('/containers/' + encodeURIComponent(container.key), { method: 'DELETE' });
+        if (result.ok) message.success(locale.value === 'zh-CN' ? '容器已删除，Docker 资源已清理' : 'Container deleted and Docker resources cleaned');
+        else message.warning((locale.value === 'zh-CN' ? '部分清理失败：' : 'Partial cleanup: ') + (result.steps?.join('; ') ?? ''));
+        await refresh();
+      } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+      finally { hide(); }
+    }
+  });
+}
 async function createCustomContainer() { const payload = await api<any>('/containers/custom', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: customImage.value, components: customComponents.value, management_mode: customMode.value }) }); if (payload.task?.id) { selectedTaskId.value = payload.task.id; view.value = 'tasks'; await loadTaskLog(payload.task.id); } await refresh(); }
 
 async function saveWorkbenchSettings() {
@@ -413,6 +462,8 @@ onMounted(() => { document.documentElement.lang = locale.value; document.documen
                 <a-button size="small" :disabled="container.state === 'missing' || container.state === 'running'" @click="runContainerAction(container, 'start')">{{ t('start') }}</a-button>
                 <a-button size="small" danger :disabled="container.state !== 'running'" @click="runContainerAction(container, 'stop')">{{ t('stop') }}</a-button>
                 <a-button size="small" :disabled="container.state === 'missing'" @click="loadContainerLogs(actionTargetName(container))">{{ t('viewLogs') }}</a-button>
+                <a-divider type="vertical" style="margin: 0 4px;" />
+                <a-button size="small" danger @click="deleteContainerConfirm(container)"><template #icon><DeleteOutlined /></template>{{ locale === 'zh-CN' ? '删除模板' : 'Delete' }}</a-button>
               </a-space>
             </a-card>
           </div>

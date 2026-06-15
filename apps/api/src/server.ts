@@ -19,6 +19,7 @@ import {
 import { systemCheck } from "./systemInspector.js";
 import {
   applyContainerRuntimeConfig,
+  deleteContainer,
   containerAction,
   containerLogs,
   createCustomContainerTask,
@@ -238,6 +239,13 @@ route("POST", "/containers/:name/:action", async (_req, res, params) => {
   if (!["start", "stop", "restart"].includes(params.action))
     return sendJson(res, 400, { detail: "Unsupported container action: " + params.action });
   sendJson(res, 202, await containerAction(params.name, params.action as "start" | "stop" | "restart"));
+});
+route("DELETE", "/containers/:key", async (_req, res, params) => {
+  // Only allow deleting runtime preset containers (vllm, trtllm, audio), not infrastructure
+  if (!["vllm", "trtllm", "audio"].includes(params.key))
+    return sendJson(res, 403, { detail: "Only runtime containers (vllm, trtllm, audio) can be deleted through this API." });
+  const result = await deleteContainer(params.key);
+  sendJson(res, result.ok ? 200 : 500, result);
 });
 
 /* deployments */
