@@ -80,6 +80,9 @@ body { margin: 0; min-width: 320px; }
 .dashboard-device { grid-column: 1; width: 100%; }
 .dashboard-resources { grid-column: 2; width: 100%; }
 .dashboard-activity { grid-column: 3; }
+.dashboard-grid > .glass-card.dashboard-device,
+.dashboard-grid > .glass-card.dashboard-resources,
+.dashboard-grid > .glass-card.dashboard-activity { min-height: 240px; }
 .dashboard-containers { grid-column: 1; min-height: 0 !important; }
 .dashboard-published { grid-column: 2; min-height: 0 !important; }
 .dashboard-tasks { grid-column: 3; min-height: 0 !important; }

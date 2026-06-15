@@ -1,21 +1,19 @@
 # AMUIN AI STACK
 
-A vLLM-first local model workbench for DGX Spark — download, audit, deploy, and serve models through OpenAI-compatible APIs.
+A local AI model workbench for DGX Spark — download models, launch standardized container templates, and load models into vLLM / TensorRT-LLM / PyTorch runtimes with OpenAI-compatible APIs.
 
 ## Architecture
 
 ```
-Frontend Console (:8888) → Backend Control Plane (:8000) → Docker/NVIDIA Runtime
-                                                              ├── vLLM Service (:30000)
-                                                              ├── TensorRT-LLM Service (:31000)
-                                                              └── Audio Service (:32000)
+Frontend Console (:8888) → Backend API (:8000) → Docker / NVIDIA Runtime
+                                                    ├── vLLM Service (:30000)
+                                                    ├── TensorRT-LLM Service (:31000)
+                                                    └── Audio Service (:32000, PyTorch)
 ```
 
-- **Management console** fixed at `http://localhost:8888`
-- **Inference services** published in the `30000–60000` port range, one entrypoint per service type
-- **vLLM** is the default runtime for LLM / VLM / embedding workloads
-- **TensorRT-LLM** is available as an advanced option for DGX Spark validated models
-- **llama.cpp / GGUF** is not a publishing target — use LM Studio or external tools for GGUF files
+- **Management console** at `http://localhost:8888`
+- **Inference services** on ports `30000–60000`, one entry per service type
+- **3 standardized template containers** — vLLM, TensorRT-LLM, Audio (PyTorch) — pre-configured with Docker images, component dependencies, and restart policies
 
 ## Quick Start
 
@@ -25,7 +23,7 @@ cd /home/zhenz/ai-stack
 # Full stack (API + frontend + infrastructure)
 docker compose -f deploy/compose/docker-compose.yml up -d --build
 
-# With vLLM worker template
+# With vLLM worker
 docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.vllm.yml up -d --build
 
 # Audio-only stack (ASR + TTS)
@@ -38,31 +36,41 @@ Open `http://localhost:8888` to access the management console.
 
 | Directory | Purpose |
 |-----------|---------|
-| `apps/api/` | TypeScript/Node.js control plane — model registry, downloads, deployments, OpenAI proxy |
-| `apps/frontend/` | Vue 3 management console and chat UI |
-| `services/audio/` | ASR/TTS realtime audio service (PyTorch 25.04) |
-| `legacy/python-backend/` | Previous FastAPI backend — migration reference only |
-| `deploy/compose/` | Docker Compose entrypoints (main, vllm, audio, legacy models) |
-| `deploy/dockerfiles/` | Helper images (download tools, llama.cpp) |
-| `models/` | Local model checkpoints and weights |
-| `cache/` | HuggingFace / ModelScope download cache |
-| `volumes/` | Persistent data (PostgreSQL, Milvus, etcd, MinIO) |
+| `apps/api/` | Node.js/TypeScript control plane — model registry, downloads, deployments |
+| `apps/frontend/` | Vue 3 + Vite management console and chat UI |
+| `services/audio/` | Python ASR/TTS audio service (FunASR + CosyVoice, PyTorch) |
+| `deploy/compose/` | Docker Compose entrypoints (main, vllm, audio) |
+| `deploy/dockerfiles/` | Helper images (download tools) |
+| `models/` | Local model checkpoints and weights (gitignored) |
 | `configs/` | Model catalog, runtime profiles, residency policy |
-| `ops/scripts/` | Operational scripts (download, start/stop, health checks) |
-| `logs/` | Service and task logs |
-| `engines/` | Future TensorRT-LLM engines |
+| `scripts/` | Development convenience scripts |
+| `ops/` | Operational scripts (download, health checks) |
+| `playbooks/` | DGX Spark reference playbooks and examples |
 
-## Model Lifecycle
+Automatically generated at runtime (gitignored): `volumes/`, `cache/`, `state/`, `logs/`, `tmp/`.
 
-Every model follows a state machine:
+## Container Templates
 
-`unknown → downloading → downloaded → ready → running → stopped`
+| Template | Runtime | Port | Stack |
+|----------|---------|------|-------|
+| vLLM | LLM / VLM / Embedding | 30000 | Python, CUDA, PyTorch, vLLM |
+| TensorRT-LLM | High-performance LLM | 31000 | CUDA, TensorRT-LLM |
+| Audio Service | ASR / TTS | 32000 | Python, PyTorch, FunASR, CosyVoice |
 
-- **Import** a model by pasting a HuggingFace or ModelScope URL
-- **Audit** inspects file structure, format, capabilities, and runtime compatibility
-- **Download** runs as a tracked task with progress and log output
-- **Deploy** loads a compatible model into a vLLM / TensorRT-LLM / Audio runtime
-- **Unload** stops the deployment and frees GPU memory
+All three are pre-debugged: Docker images pinned, components verified, restart policies set to `resident`. Launch a container, load a compatible model, and the endpoint is live.
+
+## Workflow
+
+```
+Import URL → Audit model → Download → Start container → Load model → Serve
+```
+
+1. **Import** — paste a HuggingFace or ModelScope model URL
+2. **Audit** — auto-detect file structure, format, capabilities, and runtime compatibility
+3. **Download** — runs as a tracked background task with progress and logs
+4. **Start container** — pull the runtime image and launch from a standardized template
+5. **Load model** — deploy the local model into the target container
+6. **Serve** — model registers on the service port with an OpenAI-compatible endpoint
 
 ## Runtime Compatibility
 
@@ -86,12 +94,10 @@ Every model follows a state machine:
 | GET | `/tasks` | List all tasks (download, deploy, container) |
 | GET | `/tasks/:id/logs` | Read task log output |
 | GET | `/deployments` | List configured and active deployments |
-| POST | `/deployments/start` | Deploy a model to a runtime |
-| POST | `/deployments/:id/stop` | Stop a deployment |
+| POST | `/deployments` | Deploy a model to a runtime |
 | GET | `/containers` | List runtime containers with status |
 | POST | `/containers/:key/pull-image` | Pull a runtime Docker image |
-| POST | `/containers/:name/start` | Start a container |
-| POST | `/containers/:name/stop` | Stop a container |
+| POST | `/containers/:key/test-image` | Test a runtime image |
 | GET/POST | `/settings/workbench` | Read or update management port |
 | GET/POST | `/settings/network` | Read or toggle LAN access |
 
@@ -99,8 +105,8 @@ Every model follows a state machine:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/models` | List models running on active deployments |
-| POST | `/v1/chat/completions` | Chat completions (auto-loads model if needed) |
+| GET | `/v1/models` | List models on active deployments |
+| POST | `/v1/chat/completions` | Chat completions |
 | POST | `/v1/embeddings` | Embeddings |
 
 ## Port Policy
@@ -113,29 +119,11 @@ Every model follows a state machine:
 | `31000` | TensorRT-LLM OpenAI service |
 | `32000` | Audio HTTP/WebSocket service |
 
-Inference ports are **per service type**, not per model. Models register into their target service; worker ports are internal only.
-
-## Operations
-
-```bash
-# Download a model from ModelScope
-ops/scripts/ms-download.sh Qwen/Qwen3.5-9B qwen35-9b
-
-# Download from HuggingFace
-ops/scripts/hf-download.sh Tesslate/OmniCoder-9B omnicoder-9b
-
-# Check model download completeness
-python3 ops/scripts/check_models_progress.py
-
-# Inspect running containers
-docker ps --format '{{.Names}}\t{{.Status}}'
-docker logs --tail 100 vllm-service
-```
+Inference ports are per service type, not per model. Models register into their target service.
 
 ## Notes
 
-- ModelScope (`modelscope.cn`) is the primary download source on this host; HuggingFace may time out
+- ModelScope (`modelscope.cn`) is the primary download source; HuggingFace may time out on this host
 - Docker socket access is required for all container operations
-- The legacy `docker-compose-models.yml` (llama.cpp/GGUF) is kept for reference only
+- vLLM is not universal — some architectures, quantizations, or multimodal models may need specific versions
 - TensorRT-LLM support depends on the DGX Spark image version and model architecture
-- vLLM is not universal — some architectures, quantizations, or multimodal models may need specific versions or extra dependencies
