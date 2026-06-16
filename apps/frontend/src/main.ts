@@ -1,7 +1,16 @@
-import { createApp } from 'vue';
-import Antd from 'ant-design-vue';
-import App from './App.vue';
-import 'ant-design-vue/dist/reset.css';
-import './styles.css';
+import { createApp } from "vue";
+import App from "./App.vue";
 
-createApp(App).use(Antd).mount('#app');
+// 声明 Electron API 类型
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron: boolean;
+      getAppVersion: () => Promise<string>;
+      platform: string;
+    };
+  }
+}
+
+const app = createApp(App);
+app.mount("#app");
