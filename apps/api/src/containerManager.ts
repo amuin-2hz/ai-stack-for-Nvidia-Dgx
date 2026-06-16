@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { createTask, runManagedCommand } from "./taskRunner.js";
 import { runCommand, shellQuote, slugify } from "./utils.js";
-import type { StateStore } from "./state.js";
+import { createTask as persistTask, listTasks, listContainerConfigs } from "./store.js";
 import type { ContainerManagementMode, ContainerRestartPolicy, ContainerSettings } from "./types.js";
 
 export interface ContainerRecord {
@@ -47,7 +47,7 @@ export interface CustomContainerRequest {
   auto_restart?: boolean;
 }
 
-export async function createCustomContainerTask(store: StateStore, request: CustomContainerRequest, baseDir: string, logsRoot: string) {
+export async function createCustomContainerTask(request: CustomContainerRequest, baseDir: string, logsRoot: string) {
   const components = sanitizeComponents(request.components ?? []);
   const runtimeHint = components.includes("vllm") ? "vllm" : components.includes("tensorrt-llm") ? "trtllm" : "runtime";
   const rawName = request.name?.trim() || "custom_" + runtimeHint + "_" + Date.now();
@@ -67,15 +67,15 @@ export async function createCustomContainerTask(store: StateStore, request: Cust
   ].join(" ");
   const command = mode === "resident" ? createCommand + " && docker start " + shellQuote(name) : createCommand;
   const task = createTask("container", command, baseDir, join(logsRoot, "tasks", "container-" + name + ".log"), { name, image, components, management_mode: mode, restart_policy: restartPolicy });
-  await store.createTask(task);
-  void runManagedCommand(store, { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
+  await persistTask(task);
+  void runManagedCommand( { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
   return { status: "starting", container: { name, image, components, management_mode: mode, restart_policy: restartPolicy }, task };
 }
 
-export async function listContainers(store: StateStore): Promise<{ containers: ContainerRecord[]; components: string[]; modes: string[]; restart_policies: string[] }> {
-  const [dockerRows, settings, tasks] = await Promise.all([dockerContainers(), store.listContainerSettings(), store.listTasks()]);
+export async function listContainers(): Promise<{ containers: ContainerRecord[]; components: string[]; modes: string[]; restart_policies: string[] }> {
+  const [dockerRows, settings, tasks] = await Promise.all([dockerContainers(), Promise.resolve(listContainerConfigs()), Promise.resolve(listTasks())]);
   const containers = await Promise.all(presets.map(async (preset) => {
-    const config = settings[preset.key] ?? defaultSettingsFor(preset.key, preset.port, preset.management_mode);
+    const config = (settings as ContainerSettings[]).find((c: ContainerSettings) => c.key === preset.key) ?? defaultSettingsFor(preset.key, preset.port, preset.management_mode);
     const match = dockerRows.find((row) => preset.names.includes(row.name));
     const image = match?.image || preset.image;
     const imagePulled = await imageExists(image);
@@ -159,25 +159,25 @@ export async function listContainers(store: StateStore): Promise<{ containers: C
   };
 }
 
-export async function createImagePullTask(store: StateStore, key: string, baseDir: string, logsRoot: string) {
+export async function createImagePullTask(key: string, baseDir: string, logsRoot: string) {
   const preset = presetForKey(key);
   if (!preset) throw new Error("Unknown preset runtime: " + key);
   const command = key === "audio"
     ? "docker compose -f deploy/compose/docker-compose.yml build audio-service"
     : "docker pull " + shellQuote(preset.image);
   const task = createTask("container", command, baseDir, join(logsRoot, "tasks", "image-" + key + "-pull.log"), { action: "pull_image", key, image: preset.image });
-  await store.createTask(task);
-  void runManagedCommand(store, { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
+  await persistTask(task);
+  void runManagedCommand( { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
   return { status: "starting", image: preset.image, task };
 }
 
-export async function createImageTestTask(store: StateStore, key: string, baseDir: string, logsRoot: string) {
+export async function createImageTestTask(key: string, baseDir: string, logsRoot: string) {
   const preset = presetForKey(key);
   if (!preset) throw new Error("Unknown preset runtime: " + key);
   const command = testCommandFor(key, preset.image);
   const task = createTask("container", command, baseDir, join(logsRoot, "tasks", "image-" + key + "-test.log"), { action: "test_image", key, image: preset.image });
-  await store.createTask(task);
-  void runManagedCommand(store, { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
+  await persistTask(task);
+  void runManagedCommand( { taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
   return { status: "starting", image: preset.image, task };
 }
 

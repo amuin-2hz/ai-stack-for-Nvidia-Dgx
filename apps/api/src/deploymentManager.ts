@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { compatibilityFor, servicePorts } from "./modelRegistry.js";
 import { createTask, runManagedCommand } from "./taskRunner.js";
 import { shellQuote } from "./utils.js";
-import type { StateStore } from "./state.js";
+import { createTask as persistTask, upsertDeployment } from "./store.js";
 import type { ActiveDeploymentRecord, ContainerSettings, DeploymentRecord, ModelRecord, ServiceType } from "./types.js";
 
 export interface DeploymentRequest {
@@ -73,7 +73,6 @@ export function createDeploymentPlan(
 }
 
 export async function startDeployment(
-  store: StateStore,
   deployment: DeploymentRecord,
   model: ModelRecord,
   request: DeploymentRequest,
@@ -93,10 +92,10 @@ export async function startDeployment(
     openai_model: openaiModel,
     public_port: settings.public_port
   });
-  await store.createTask(task);
+  persistTask(task);
 
   const runnable = commandFor(serviceType, model.id, openaiModel, args, settings);
-  void runManagedCommand(store, {
+  void runManagedCommand({
     taskId: task.id,
     command: runnable.command,
     args: runnable.args,
@@ -104,7 +103,7 @@ export async function startDeployment(
     env: { AI_STACK_BASE: baseDir, ...runnable.env },
     logPath: task.log_path,
     onSuccess: async () => {
-      await store.upsertDeployment(activeDeploymentFor(serviceType, model.id, openaiModel, task.id, settings));
+      upsertDeployment(activeDeploymentFor(serviceType, model.id, openaiModel, task.id, settings));
     }
   });
 

@@ -3,11 +3,10 @@ import { proxyHttp } from "./httpProxy.js";
 import { createDeploymentHelpers } from "./deploymentHelpers.js";
 import { compatibilityFor, getModel } from "./modelRegistry.js";
 import { startDeployment } from "./deploymentManager.js";
-import type { StateStore } from "./state.js";
+import { getContainerConfig } from "./store.js";
 import type { ServiceType } from "./types.js";
 
 export interface OpenAIProxyDeps {
-  store: StateStore;
   modelsRoot: string;
   workspaceRoot: string;
   logsRoot: string;
@@ -15,7 +14,7 @@ export interface OpenAIProxyDeps {
 }
 
 export function createOpenAiProxy(deps: OpenAIProxyDeps) {
-  const { store, modelsRoot, workspaceRoot, logsRoot, deploymentHelpers } =
+  const { modelsRoot, workspaceRoot, logsRoot, deploymentHelpers } =
     deps;
   const {
     liveActiveDeployments,
@@ -105,9 +104,8 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       (item) => item.service_type === serviceType
     );
     if (!deployment) return null;
-    const containerSettings = await store.getContainerSettings(serviceType);
+    const containerSettings = getContainerConfig(serviceType);
     await startDeployment(
-      store,
       deployment,
       model,
       { service_type: serviceType, openai_model: modelId, args: {} },

@@ -1,18 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { enrichTaskProgress } from "./taskProgress.js";
 import { runCommand } from "./utils.js";
-import type { StateStore } from "./state.js";
+import { updateTask } from "./store.js";
 import type { TaskRecord } from "./types.js";
 
 export async function reconcileTask(
-  task: Awaited<ReturnType<StateStore["getTask"]>>,
-  store: StateStore,
+  task: TaskRecord | undefined,
   workspaceRoot: string
 ) {
   if (!task) return task;
   const enriched = await enrichTaskProgress(task, workspaceRoot);
   if (task.type === "download" && enriched.complete_on_disk && task.status !== "succeeded") {
-    const updated = await store.updateTask(task.id, {
+    const updated = await updateTask(task.id, {
       status: "succeeded",
       finished_at: new Date().toISOString(),
       error: undefined
@@ -22,7 +21,7 @@ export async function reconcileTask(
       : { ...enriched, status: "succeeded" };
   }
   if (task.status === "running" && !(await isTaskProcessActive(task))) {
-    const updated = await store.updateTask(task.id, {
+    const updated = await updateTask(task.id, {
       status: "failed",
       finished_at: new Date().toISOString(),
       error:
@@ -40,7 +39,7 @@ export async function reconcileTask(
   if (task.status === "succeeded" && task.log_path) {
     const logErrors = await scanLogForErrors(task.log_path);
     if (logErrors) {
-      const updated = await store.updateTask(task.id, {
+      const updated = await updateTask(task.id, {
         status: "failed",
         error: logErrors,
         finished_at: task.finished_at ?? new Date().toISOString()

@@ -5,7 +5,17 @@ import { dirname, join, resolve } from "node:path";
 import { createWriteStream } from "node:fs";
 import { WebSocketServer } from "ws";
 
-import { StateStore } from "./state.js";
+import { initDb } from "./db.js";
+import { migrateFromJson } from "./migrate.js";
+import {
+  createTask, updateTask, getTask, listTasks,
+  upsertDeployment, listActiveDeployments, getActiveDeployment, deleteDeployment,
+  listChats, getCurrentChatId, setCurrentChatId, getChat, createChat, renameChat, deleteChat, clearChats, appendMessage,
+  getContainerConfig, listContainerConfigs, setContainerConfig,
+  getWorkbenchSettings, setManagementPort, getNetworkSettings, setNetworkAccess,
+  setIngestTask, ingestStatus,
+  getSelectedSources, setSelectedSources, getSelectedModel, setSelectedModel,
+} from "./store.js";
 import { createDownloadPlan, startDownload } from "./downloadManager.js";
 import { createDeploymentPlan as buildDeploymentPlan, startDeployment } from "./deploymentManager.js";
 import {
@@ -50,11 +60,9 @@ const uploadsRoot = process.env.UPLOADS_ROOT ?? join(stateRoot, "uploads");
 const logsRoot = process.env.LOGS_ROOT ?? join(workspaceRoot, "logs");
 const audioServiceUrl = process.env.AUDIO_SERVICE_URL ?? "http://127.0.0.1:32000";
 const audioServiceWsUrl = process.env.AUDIO_SERVICE_WS_URL ?? "ws://127.0.0.1:32000/ws/realtime";
-const store = new StateStore(join(stateRoot, "workbench-state.json"));
-
 /* ── composed modules ──────────────────────────── */
-const dh = createDeploymentHelpers({ store, modelsRoot, audioServiceUrl });
-const oai = createOpenAiProxy({ store, modelsRoot, workspaceRoot, logsRoot, deploymentHelpers: dh });
+const dh = createDeploymentHelpers({ modelsRoot, audioServiceUrl });
+const oai = createOpenAiProxy({ modelsRoot, workspaceRoot, logsRoot, deploymentHelpers: dh });
 
 /* ── router ────────────────────────────────────── */
 const { route, match } = createRouter();
@@ -66,36 +74,36 @@ route("GET", "/healthz", async (_req, res) => {
 
 /* system */
 route("GET", "/system/check", async (_req, res) => {
-  const workbench = await store.workbenchSettings();
+  const workbench = getWorkbenchSettings();
   sendJson(res, 200, {
     ...(await systemCheck()),
     management_url: "http://localhost:" + workbench.active_management_port,
     configured_management_url: "http://localhost:" + workbench.management_port,
     workbench,
-    network: await store.networkSettings()
+    network: getNetworkSettings()
   });
 });
 
 /* settings */
 route("GET", "/settings/workbench", async (_req, res) => {
-  sendJson(res, 200, await store.workbenchSettings());
+  sendJson(res, 200, getWorkbenchSettings());
 });
 route("POST", "/settings/workbench", async (req, res) => {
   const body = await readBody<{ management_port?: number }>(req);
   try {
-    sendJson(res, 200, await store.setManagementPort(Number(body.management_port)));
+    sendJson(res, 200, setManagementPort(Number(body.management_port)));
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
   }
 });
 route("GET", "/settings/network", async (_req, res) => {
-  sendJson(res, 200, await store.networkSettings());
+  sendJson(res, 200, getNetworkSettings());
 });
 route("POST", "/settings/network", async (req, res) => {
   const body = await readBody<{ lan_access_enabled?: boolean }>(req);
   if (typeof body.lan_access_enabled !== "boolean")
     return sendJson(res, 400, { detail: "lan_access_enabled boolean is required" });
-  sendJson(res, 200, await store.setNetworkAccess(body.lan_access_enabled));
+  sendJson(res, 200, setNetworkAccess(body.lan_access_enabled));
 });
 
 /* models */
@@ -130,7 +138,7 @@ route("DELETE", "/models/:model_id", async (_req, res, params) => {
   if (!model) return sendJson(res, 404, { detail: "Unknown model: " + params.model_id });
 
   // 1. Check store for active deployments (vLLM / TRT-LLM loaded models)
-  const activeDeployment = (await store.listActiveDeployments()).find(
+  const activeDeployment = listActiveDeployments().find(
     (d) => d.model_id === model.id && ["running", "starting", "configured"].includes(d.status)
   );
   if (activeDeployment)
@@ -142,7 +150,7 @@ route("DELETE", "/models/:model_id", async (_req, res, params) => {
     return sendJson(res, 409, { detail: `Model is currently served by the ${published.service_type} service and cannot be deleted. Stop the service or unload the model first.` });
 
   // 3. Check active tasks
-  const activeTask = (await store.listTasks()).find(
+  const activeTask = listTasks().find(
     (t) => ["queued", "running"].includes(t.status) &&
       (t.metadata?.model_id === model.id || t.metadata?.alias === model.id || t.metadata?.alias === model.display_name)
   );
@@ -172,7 +180,7 @@ route("POST", "/downloads", async (req, res) => {
   const body = await readBody<{ url?: string; alias?: string; provider?: string }>(req);
   if (!body.url) return sendJson(res, 400, { detail: "url is required" });
   try {
-    sendJson(res, 202, await startDownload(store, { url: body.url, alias: body.alias, provider: body.provider }, workspaceRoot, logsRoot));
+    sendJson(res, 202, await startDownload({ url: body.url, alias: body.alias, provider: body.provider }, workspaceRoot, logsRoot));
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
   }
@@ -180,16 +188,16 @@ route("POST", "/downloads", async (req, res) => {
 
 /* tasks */
 route("GET", "/tasks", async (_req, res) => {
-  const tasks = await Promise.all((await store.listTasks()).map((t) => reconcileTask(t, store, workspaceRoot)));
+  const tasks = await Promise.all(listTasks().map((t) => reconcileTask(t, workspaceRoot)));
   sendJson(res, 200, { tasks });
 });
 route("GET", "/tasks/:task_id", async (_req, res, params) => {
-  const task = await store.getTask(params.task_id);
+  const task = getTask(params.task_id);
   if (!task) return sendJson(res, 404, { detail: "Unknown task: " + params.task_id });
-  sendJson(res, 200, await reconcileTask(task, store, workspaceRoot));
+  sendJson(res, 200, await reconcileTask(task, workspaceRoot));
 });
 route("GET", "/tasks/:task_id/logs", async (_req, res, params) => {
-  const task = await store.getTask(params.task_id);
+  const task = getTask(params.task_id);
   if (!task) return sendJson(res, 404, { detail: "Unknown task: " + params.task_id });
   const logs = await readFile(task.log_path, "utf-8").catch((e) => (e as Error).message);
   sendJson(res, 200, { task_id: task.id, log_path: task.log_path, logs });
@@ -197,13 +205,13 @@ route("GET", "/tasks/:task_id/logs", async (_req, res, params) => {
 
 /* containers */
 route("GET", "/containers", async (_req, res) => {
-  sendJson(res, 200, await listContainers(store));
+  sendJson(res, 200, await listContainers());
 });
 route("POST", "/containers/:key/config", async (req, res, params) => {
   const key = decodeURIComponent(params.key);
   const body = await readBody<{ public_port?: number; management_mode?: "resident" | "once"; restart_policy?: string; auto_restart?: boolean }>(req);
   try {
-    const settings = await store.setContainerSettings(key, body);
+    const settings = setContainerConfig(key, body as any);
     sendJson(res, 200, { settings, apply: await applyContainerRuntimeConfig(key, settings) });
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
@@ -211,14 +219,14 @@ route("POST", "/containers/:key/config", async (req, res, params) => {
 });
 route("POST", "/containers/:key/pull-image", async (_req, res, params) => {
   try {
-    sendJson(res, 202, await createImagePullTask(store, decodeURIComponent(params.key), workspaceRoot, logsRoot));
+    sendJson(res, 202, await createImagePullTask(decodeURIComponent(params.key), workspaceRoot, logsRoot));
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
   }
 });
 route("POST", "/containers/:key/test-image", async (_req, res, params) => {
   try {
-    sendJson(res, 202, await createImageTestTask(store, decodeURIComponent(params.key), workspaceRoot, logsRoot));
+    sendJson(res, 202, await createImageTestTask(decodeURIComponent(params.key), workspaceRoot, logsRoot));
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
   }
@@ -226,7 +234,7 @@ route("POST", "/containers/:key/test-image", async (_req, res, params) => {
 route("POST", "/containers/custom", async (req, res) => {
   const body = await readBody<{ name?: string; image?: string; components?: string[]; management_mode?: string; restart_policy?: string; auto_restart?: boolean }>(req);
   try {
-    sendJson(res, 202, await createCustomContainerTask(store, body, workspaceRoot, logsRoot));
+    sendJson(res, 202, await createCustomContainerTask(body as any, workspaceRoot, logsRoot));
   } catch (error) {
     sendJson(res, 400, { detail: error instanceof Error ? error.message : String(error) });
   }
@@ -298,14 +306,14 @@ route("GET", "/deployments/:deployment_id/logs", async (_req, res, params) => {
   });
 });
 route("POST", "/deployments/:deployment_id/stop", async (_req, res, params) => {
-  const active = await store.getActiveDeployment(params.deployment_id);
+  const active = getActiveDeployment(params.deployment_id);
   const d = active ? dh.normalizeDeployment(active) : await dh.findDeployment(params.deployment_id);
   if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
   if (!d.container_name) return sendJson(res, 400, { detail: "Deployment has no container to stop." });
   const result = await runCommand("docker", ["rm", "-f", d.container_name], 30000);
   const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
   const missingContainer = /No such container/i.test(output);
-  if (active && (result.ok || missingContainer)) await store.deleteDeployment(params.deployment_id);
+  if (active && (result.ok || missingContainer)) deleteDeployment(params.deployment_id);
   const detail = missingContainer ? "Container was already absent; deployment state is treated as stopped." : output;
   sendJson(res, result.ok || missingContainer ? 200 : 500, { deployment_id: params.deployment_id, container_name: d.container_name, status: result.ok || missingContainer ? "stopped" : "failed", detail });
 });
@@ -337,9 +345,9 @@ route("POST", "/deployments", async (req, res) => {
   if (compat.status === "unsupported") return sendJson(res, 409, { detail: compat.reason, compatibility: compat });
   const deployment = (await dh.configuredDeployments()).find((d) => d.service_type === serviceType);
   if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
-  const containerSettings = await store.getContainerSettings(serviceType);
+  const containerSettings = getContainerConfig(serviceType);
   if (body.start) {
-    sendJson(res, 202, await startDeployment(store, deployment, model, body, workspaceRoot, logsRoot, containerSettings));
+    sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
     return;
   }
   sendJson(res, 200, buildDeploymentPlan(deployment, model, serviceType, body.openai_model ?? model.id, body.args ?? {}, workspaceRoot, containerSettings));
@@ -357,8 +365,8 @@ route("POST", "/deployments/start", async (req, res) => {
   if (compat.status === "unsupported") return sendJson(res, 409, { detail: compat.reason, compatibility: compat });
   const deployment = (await dh.configuredDeployments()).find((d) => d.service_type === serviceType);
   if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
-  const containerSettings = await store.getContainerSettings(serviceType);
-  const existing = (await store.listActiveDeployments()).find(
+  const containerSettings = getContainerConfig(serviceType);
+  const existing = listActiveDeployments().find(
     (d) => d.service_type === serviceType && d.model_id === model.id &&
       d.openai_model === (body.openai_model ?? model.id) && d.status === "running"
   );
@@ -367,27 +375,27 @@ route("POST", "/deployments/start", async (req, res) => {
     if (await dh.deploymentContainerIsRunning(normalized.container_name)) {
       return sendJson(res, 200, { ...normalized, status: "already_running", openai_models: [normalized.openai_model], detail: "Deployment is already running." });
     }
-    await store.deleteDeployment(normalized.deployment_id);
+    deleteDeployment(normalized.deployment_id);
   }
-  sendJson(res, 202, await startDeployment(store, deployment, model, body, workspaceRoot, logsRoot, containerSettings));
+  sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
 });
 
 /* legacy chat / sources / ingest */
 route("GET", "/selected_sources", async (_req, res) => {
-  sendJson(res, 200, { sources: await store.selectedSources() });
+  sendJson(res, 200, { sources: getSelectedSources() });
 });
 route("POST", "/selected_sources", async (req, res) => {
   const body = await readBody<unknown>(req);
   const sources = Array.isArray(body) ? body.map(String) : [];
-  await store.setSelectedSources(sources);
+  setSelectedSources(sources);
   sendJson(res, 200, { sources });
 });
 route("GET", "/selected_model", async (_req, res) => {
-  sendJson(res, 200, { model: await store.selectedModel() });
+  sendJson(res, 200, { model: getSelectedModel() });
 });
 route("POST", "/selected_model", async (req, res) => {
   const body = await readBody<{ model?: string }>(req);
-  await store.setSelectedModel(body.model || "");
+  setSelectedModel(body.model || "");
   sendJson(res, 200, { model: body.model || "" });
 });
 route("GET", "/available_models", async (_req, res) => {
@@ -395,7 +403,7 @@ route("GET", "/available_models", async (_req, res) => {
   const runnable = registry
     .filter((m) => ["vllm", "audio", "trtllm", "lmstudio"].includes(m.runtime.preferred))
     .map((m) => m.id);
-  sendJson(res, 200, { models: runnable.length ? runnable : [await store.selectedModel()] });
+  sendJson(res, 200, { models: runnable.length ? runnable : [getSelectedModel()] });
 });
 route("GET", "/sources", async (_req, res) => {
   try {
@@ -428,44 +436,45 @@ route("POST", "/ingest", async (req, res) => {
   } else {
     for await (const _chunk of req) { /* drain */ }
   }
-  await store.setIngestTask(taskId, "completed");
+  setIngestTask(taskId, "completed");
   sendJson(res, 200, { message: `Files queued for processing. Indexed ${fileCount} file(s).`, task_id: taskId });
 });
 route("GET", "/ingest/status/:task_id", async (_req, res, params) => {
-  sendJson(res, 200, { task_id: params.task_id, status: await store.ingestStatus(params.task_id) ?? "unknown" });
+  sendJson(res, 200, { task_id: params.task_id, status: ingestStatus(params.task_id) ?? "unknown" });
 });
 route("GET", "/chats", async (_req, res) => {
-  sendJson(res, 200, { chats: await store.listChats() });
+  sendJson(res, 200, { chats: listChats() });
 });
 route("GET", "/chat_id", async (_req, res) => {
-  sendJson(res, 200, { chat_id: await store.getCurrentChatId() });
+  sendJson(res, 200, { chat_id: getCurrentChatId() });
 });
 route("POST", "/chat_id", async (req, res) => {
   const body = await readBody<{ chat_id?: string }>(req);
   if (!body.chat_id) return sendJson(res, 400, { detail: "chat_id is required" });
-  await store.setCurrentChatId(body.chat_id);
+  setCurrentChatId(body.chat_id);
   sendJson(res, 200, { chat_id: body.chat_id });
 });
 route("GET", "/chat/:chat_id/metadata", async (_req, res, params) => {
-  const chat = await store.getChat(params.chat_id);
+  const chat = getChat(params.chat_id);
+  if (!chat) return sendJson(res, 404, { detail: "Chat not found: " + params.chat_id });
   sendJson(res, 200, { name: chat.name });
 });
 route("POST", "/chat/rename", async (req, res) => {
   const body = await readBody<{ chat_id?: string; new_name?: string }>(req);
   if (!body.chat_id || !body.new_name) return sendJson(res, 400, { detail: "chat_id and new_name are required" });
-  await store.renameChat(body.chat_id, body.new_name);
+  renameChat(body.chat_id, body.new_name);
   sendJson(res, 200, { ok: true });
 });
 route("POST", "/chat/new", async (_req, res) => {
-  const chat = await store.createChat();
+  const chat = createChat();
   sendJson(res, 200, { chat_id: chat.id });
 });
 route("DELETE", "/chat/:chat_id", async (_req, res, params) => {
-  await store.deleteChat(params.chat_id);
+  deleteChat(params.chat_id);
   sendJson(res, 200, { ok: true });
 });
 route("DELETE", "/chats/clear", async (_req, res) => {
-  const result = await store.clearChats();
+  const result = clearChats();
   sendJson(res, 200, { cleared_count: result.cleared, new_chat_id: result.newChatId });
 });
 route("DELETE", "/collections/:collection_name", async (_req, res, params) => {
@@ -506,7 +515,7 @@ const server = createServer(async (req, res) => {
 
 /* ── WebSocket ────────────────────────────────── */
 const wss = new WebSocketServer({ noServer: true });
-const wsHandler = createWsHandler({ store, wss, audioServiceWsUrl, proxyWebSocket: (req, socket, head, target, w) => proxyWebSocket(req, socket, head, target, w) });
+const wsHandler = createWsHandler({ wss, audioServiceWsUrl, proxyWebSocket: (req: IncomingMessage, socket: any, head: Buffer, target: string, w: WebSocketServer) => proxyWebSocket(req, socket, head, target, w) });
 
 server.on("upgrade", (req, socket, head) => {
   wsHandler.handleUpgrade(req, socket, head);
@@ -514,6 +523,11 @@ server.on("upgrade", (req, socket, head) => {
 wss.on("connection", (ws, req) => {
   wsHandler.handleConnection(ws, req);
 });
+
+/* ── init DB ──────────────────────────────────── */
+initDb();
+const migrationResult = migrateFromJson(stateRoot);
+if (migrationResult.migrated) console.log(`DB migration: ${migrationResult.detail}`);
 
 /* ── start ────────────────────────────────────── */
 server.listen(port, "0.0.0.0", () => {

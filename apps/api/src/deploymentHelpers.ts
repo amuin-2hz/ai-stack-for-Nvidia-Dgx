@@ -1,9 +1,14 @@
+import type { ActiveDeploymentRecord } from "./types.js";
 import { listDeployments } from "./modelRegistry.js";
 import { listContainers } from "./containerManager.js";
-import type { StateStore } from "./state.js";
+import {
+  listContainerConfigs,
+  listActiveDeployments,
+  getActiveDeployment,
+  deleteDeployment,
+} from "./store.js";
 
 export interface DeploymentHelpersDeps {
-  store: StateStore;
   modelsRoot: string;
   audioServiceUrl: string;
 }
@@ -17,12 +22,12 @@ export type ConfiguredDeployment = Awaited<
 };
 
 export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
-  const { store, modelsRoot, audioServiceUrl } = deps;
+  const { modelsRoot, audioServiceUrl } = deps;
 
   async function configuredDeployments(): Promise<ConfiguredDeployment[]> {
-    const settings = await store.listContainerSettings();
+    const configs = listContainerConfigs();
     return (await listDeployments(modelsRoot)).map((deployment) => {
-      const config = settings[deployment.service_type];
+      const config = configs.find((c: any) => c.key === deployment.service_type);
       if (!config) return deployment as ConfiguredDeployment;
       const suffix = ["vllm", "trtllm"].includes(deployment.service_type)
         ? "/v1"
@@ -69,7 +74,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     containerName: string | null | undefined
   ): Promise<boolean> {
     if (!containerName) return false;
-    const payload = await listContainers(store);
+    const payload = await listContainers();
     return payload.containers.some(
       (container) =>
         (container.name === containerName ||
@@ -78,15 +83,15 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     );
   }
 
-  async function liveActiveDeployments() {
-    const active = await store.listActiveDeployments();
-    const live: Array<ReturnType<typeof normalizeDeployment>> = [];
+  async function liveActiveDeployments(): Promise<ActiveDeploymentRecord[]> {
+    const active = listActiveDeployments();
+    const live: ActiveDeploymentRecord[] = [];
     for (const deployment of active) {
       const normalized = normalizeDeployment(deployment);
       if (await deploymentContainerIsRunning(normalized.container_name)) {
         live.push(normalized);
       } else {
-        await store.deleteDeployment(normalized.deployment_id);
+        deleteDeployment(normalized.deployment_id);
       }
     }
     return live;
@@ -94,7 +99,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
 
   function mergeDeployments(
     configured: Awaited<ReturnType<typeof listDeployments>>,
-    active: Awaited<ReturnType<StateStore["listActiveDeployments"]>>
+    active: ReturnType<typeof listActiveDeployments>
   ) {
     const byId = new Map(
       configured.map((deployment) => [deployment.deployment_id, deployment])
@@ -120,12 +125,12 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
   }
 
   async function findDeployment(deploymentId: string) {
-    const active = await store.getActiveDeployment(deploymentId);
+    const active = getActiveDeployment(deploymentId);
     if (active) {
       const normalized = normalizeDeployment(active);
       if (await deploymentContainerIsRunning(normalized.container_name))
         return normalized;
-      await store.deleteDeployment(normalized.deployment_id);
+      deleteDeployment(normalized.deployment_id);
     }
     const deployment = (await configuredDeployments()).find(
       (item) => item.deployment_id === deploymentId

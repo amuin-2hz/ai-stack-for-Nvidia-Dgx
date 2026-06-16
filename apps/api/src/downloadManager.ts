@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { parseModelSource } from "./modelRegistry.js";
 import { createTask, runManagedCommand } from "./taskRunner.js";
 import { shellQuote } from "./utils.js";
-import type { StateStore } from "./state.js";
+import { createTask as persistTask } from "./store.js";
 
 export interface ImportRequest {
   url: string;
@@ -39,7 +39,7 @@ export function createDownloadPlan(request: ImportRequest, baseDir: string) {
   };
 }
 
-export async function startDownload(store: StateStore, request: ImportRequest, baseDir: string, logsRoot: string) {
+export async function startDownload(request: ImportRequest, baseDir: string, logsRoot: string) {
   const plan = createDownloadPlan(request, baseDir);
   if (!plan.download) throw new Error(plan.message);
   const plannedModel = plan.model as Record<string, unknown>;
@@ -55,8 +55,8 @@ export async function startDownload(store: StateStore, request: ImportRequest, b
     expected_runtime: request.expected_runtime ?? "auto",
     runtime_hints: plan.runtime_hints
   });
-  await store.createTask(task);
-  void runManagedCommand(store, {
+  persistTask(task);
+  void runManagedCommand({
     taskId: task.id,
     command: "bash",
     args: [script, repoId, alias],

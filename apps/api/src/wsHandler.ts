@@ -1,13 +1,12 @@
 import type { IncomingMessage } from "node:http";
 import type { WebSocket, WebSocketServer } from "ws";
-import type { StateStore } from "./state.js";
+import { getCurrentChatId, getChat, appendMessage, getSelectedModel } from "./store.js";
 
 function getPath(req: IncomingMessage): string {
   return new URL(req.url ?? "/", "http://localhost").pathname;
 }
 
 export function createWsHandler(deps: {
-  store: StateStore;
   wss: WebSocketServer;
   audioServiceWsUrl: string;
   proxyWebSocket: (
@@ -18,7 +17,7 @@ export function createWsHandler(deps: {
     wss: WebSocketServer
   ) => void;
 }) {
-  const { store, wss, audioServiceWsUrl, proxyWebSocket } = deps;
+  const { wss, audioServiceWsUrl, proxyWebSocket } = deps;
 
   function handleUpgrade(
     req: IncomingMessage,
@@ -42,9 +41,13 @@ export function createWsHandler(deps: {
   function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     void (async () => {
       const chatId = decodeURIComponent(
-        getPath(req).split("/").pop() || (await store.getCurrentChatId())
+        getPath(req).split("/").pop() || getCurrentChatId() || "chat_default"
       );
-      const chat = await store.getChat(chatId);
+      const chat = getChat(chatId);
+      if (!chat) {
+        ws.send(JSON.stringify({ type: "history", messages: [] }));
+        return;
+      }
       ws.send(JSON.stringify({ type: "history", messages: chat.messages }));
       ws.on("message", async (data) => {
         try {
@@ -53,7 +56,7 @@ export function createWsHandler(deps: {
           };
           const text = payload.message?.trim();
           if (!text) return;
-          await store.appendMessage(chatId, {
+          appendMessage(chatId, {
             type: "HumanMessage",
             content: text
           });
@@ -65,18 +68,18 @@ export function createWsHandler(deps: {
             ws.send(JSON.stringify({ type: "token", token }));
             await new Promise((resolve) => setTimeout(resolve, 8));
           }
-          await store.appendMessage(chatId, {
+          appendMessage(chatId, {
             type: "AssistantMessage",
             content: answer
           });
           ws.send(
             JSON.stringify({ type: "node_end", data: "generate" })
           );
-          const updated = await store.getChat(chatId);
+          const updated = getChat(chatId);
           ws.send(
             JSON.stringify({
               type: "history",
-              messages: updated.messages
+              messages: updated?.messages ?? []
             })
           );
         } catch (error) {
@@ -93,7 +96,7 @@ export function createWsHandler(deps: {
   }
 
   async function makeAssistantReply(text: string): Promise<string> {
-    const model = await store.selectedModel();
+    const model = getSelectedModel();
     return [
       `Node/TypeScript control plane is online.`,
       ``,
