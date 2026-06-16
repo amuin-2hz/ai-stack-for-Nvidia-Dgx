@@ -10,10 +10,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "busboy": "^1.6.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/busboy": "^1.5.4",
     "@types/node": "^20.17.0",
     "@types/ws": "^8.5.13",
