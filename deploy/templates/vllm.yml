@@ -1,0 +1,15 @@
+# vLLM 容器模板 — 支持多模型共容器
+services:
+  vllm-worker:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    container_name: vllm-service
+    gpus: all
+    ipc: host
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${VLLM_PORT:-30000}:8000"
+    restart: ${RESTART_POLICY:-no}
+    volumes:
+      - ${MODELS_ROOT:-/home/zhenz/ai-stack/models}:/models:ro
+      - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
