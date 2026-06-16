@@ -50,6 +50,7 @@ import {
 } from "./serverUtils.js";
 import { newId, runCommand } from "./utils.js";
 import type { ServiceType } from "./types.js";
+import { requiresElectronPrivilege, isElectronRequest } from "./permissions.js";
 
 /* ── constants ─────────────────────────────────── */
 const port = Number(process.env.PORT ?? "8000");
@@ -504,8 +505,19 @@ route("POST", "/v1/embeddings", async (req, res) => {
 /* ── HTTP server ──────────────────────────────── */
 const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
-  const m = match(req.method ?? "GET", getPath(req));
+  const parsedPath = getPath(req);
+  const m = match(req.method ?? "GET", parsedPath);
   if (!m) return sendJson(res, 404, { detail: "Not found" });
+
+  // Permission check: privileged APIs require Electron (localhost) access
+  if (requiresElectronPrivilege(req.method ?? "GET", parsedPath)) {
+    if (!isElectronRequest(req)) {
+      return sendJson(res, 403, {
+        detail: "This operation requires local Electron access.",
+      });
+    }
+  }
+
   try {
     await m.handler(req, res, m.params);
   } catch (error) {
