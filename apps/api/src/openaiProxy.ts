@@ -76,6 +76,11 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       });
       return;
     }
+    // If the request asks for a stream, proxy chunk-by-chunk as SSE
+    if (body.stream === true) {
+      return proxyStream(res, baseUrl + path, body);
+    }
+
     const result = await proxyHttp(
       "POST",
       baseUrl + path,
@@ -150,6 +155,46 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
     autoLoadDeploymentForModel,
     waitForDeploymentReady
   };
+}
+
+async function proxyStream(
+  res: ServerResponse,
+  targetUrl: string,
+  body: Record<string, unknown>
+): Promise<void> {
+  const upstream = await fetch(targetUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    res.writeHead(upstream.status, { "Content-Type": "application/json" });
+    res.end(await upstream.text().catch(() => ""));
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  const reader = upstream.body.getReader();
+  const decoder = new TextDecoder();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      res.write(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+    res.end();
+  }
 }
 
 function sendJsonProxy(

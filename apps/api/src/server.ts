@@ -492,7 +492,16 @@ route("GET", "/audio/models", async (_req, res) => {
 /* OpenAI-compatible API */
 route("GET", "/v1/models", async (_req, res) => {
   const deployments = await dh.liveActiveDeployments();
-  const data = deployments.map((d) => ({ id: d.openai_model, object: "model", owned_by: d.service_type }));
+  const data: Array<{ id: string; object: string; owned_by: string }> = deployments
+    .filter((d) => d.status === "running")
+    .map((d) => ({ id: d.openai_model, object: "model", owned_by: d.service_type }));
+
+  // Always include ASR model from PyTorch container (if configured)
+  const pytorchConfig = getContainerConfig("pytorch");
+  if (pytorchConfig) {
+    data.push({ id: "whisper-tiny", object: "model", owned_by: "pytorch" });
+  }
+
   sendJson(res, 200, { object: "list", data });
 });
 route("POST", "/v1/chat/completions", async (req, res) => {
