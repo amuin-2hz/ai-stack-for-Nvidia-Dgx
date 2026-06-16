@@ -66,6 +66,8 @@ function createWindow() {
         mainWindow = null;
     });
 }
+// Allow running without SUID sandbox on machines without root access
+electron_1.app.commandLine.appendSwitch("no-sandbox");
 electron_1.app.whenReady().then(() => {
     startApiServer();
     // Small delay for API to start

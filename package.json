@@ -13,22 +13,29 @@
     "postinstall": "npm --prefix apps/api install && npm --prefix apps/frontend install"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "@types/node": "^20.17.0",
+    "electron": "^33.4.11",
     "electron-builder": "^25.0.0",
-    "typescript": "^5.7.0",
-    "@types/node": "^20.17.0"
+    "typescript": "^5.7.0"
   },
   "build": {
     "appId": "com.amuin.ai-stack",
     "productName": "AMUIN AI STACK",
-    "directories": { "output": "dist-electron" },
+    "directories": {
+      "output": "dist-electron"
+    },
     "linux": {
-      "target": ["deb"],
+      "target": [
+        "deb"
+      ],
       "category": "Science",
       "maintainer": "amuin@example.com"
     },
     "deb": {
-      "depends": ["docker-ce", "nvidia-container-toolkit"]
+      "depends": [
+        "docker-ce",
+        "nvidia-container-toolkit"
+      ]
     },
     "files": [
       "apps/main/dist/**/*",

@@ -77,6 +77,9 @@ function createWindow(): void {
   });
 }
 
+// Allow running without SUID sandbox on machines without root access
+app.commandLine.appendSwitch("no-sandbox");
+
 app.whenReady().then(() => {
   startApiServer();
   // Small delay for API to start
