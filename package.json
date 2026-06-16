@@ -4,7 +4,7 @@
   "private": true,
   "main": "apps/main/dist/index.js",
   "scripts": {
-    "dev": "tsc -p apps/main/tsconfig.json && electron .",
+    "dev": "tsc -p apps/main/tsconfig.json && electron . --no-sandbox",
     "build:main": "tsc -p apps/main/tsconfig.json",
     "build:api": "npm --prefix apps/api run build",
     "build:frontend": "npm --prefix apps/frontend run build",

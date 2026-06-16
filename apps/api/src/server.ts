@@ -54,7 +54,7 @@ import { requiresElectronPrivilege, isElectronRequest } from "./permissions.js";
 
 /* ── constants ─────────────────────────────────── */
 const port = Number(process.env.PORT ?? "8000");
-const workspaceRoot = process.env.AI_STACK_BASE ?? resolve(process.cwd(), "../..");
+const workspaceRoot = process.env.AI_STACK_BASE ?? process.cwd();
 const modelsRoot = process.env.MODELS_ROOT ?? join(workspaceRoot, "models");
 const stateRoot = process.env.STATE_ROOT ?? join(workspaceRoot, "state");
 const uploadsRoot = process.env.UPLOADS_ROOT ?? join(stateRoot, "uploads");

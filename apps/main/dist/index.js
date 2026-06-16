@@ -5,6 +5,7 @@ const node_child_process_1 = require("node:child_process");
 const node_path_1 = require("node:path");
 let mainWindow = null;
 let apiProcess = null;
+let frontendProcess = null;
 let tray = null;
 const API_PORT = 8000;
 const FRONTEND_PORT = 8888;
@@ -42,10 +43,22 @@ function startApiServer() {
     apiProcess.stderr?.on("data", (d) => console.error(`[API] ${d.toString().trim()}`));
     apiProcess.on("exit", (code) => console.log(`[API] exited with code ${code}`));
 }
+function startFrontendServer() {
+    if (!isDev)
+        return; // In production, frontend is served as static files
+    frontendProcess = (0, node_child_process_1.spawn)("npx", ["vite", "--host", "127.0.0.1", "--port", String(FRONTEND_PORT)], {
+        cwd: (0, node_path_1.join)(getAppRoot(), "apps", "frontend"),
+        env: { ...process.env },
+        stdio: "pipe",
+    });
+    frontendProcess.stdout?.on("data", (d) => console.log(`[VITE] ${d.toString().trim()}`));
+    frontendProcess.stderr?.on("data", (d) => console.error(`[VITE] ${d.toString().trim()}`));
+    frontendProcess.on("exit", (code) => console.log(`[VITE] exited with code ${code}`));
+}
 function createWindow() {
     mainWindow = new electron_1.BrowserWindow({
-        width: 1400,
-        height: 900,
+        width: 2100,
+        height: 1181,
         minWidth: 1024,
         minHeight: 700,
         title: "AMUIN AI STACK",
@@ -66,20 +79,49 @@ function createWindow() {
         mainWindow = null;
     });
 }
+function setupCSP() {
+    electron_1.session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const csp = isDev
+            ? [
+                "default-src 'self'",
+                `script-src 'self' 'unsafe-eval' 'unsafe-inline' http://localhost:${FRONTEND_PORT}`,
+                `style-src 'self' 'unsafe-inline' http://localhost:${FRONTEND_PORT}`,
+                `connect-src 'self' http://localhost:${FRONTEND_PORT} ws://localhost:${FRONTEND_PORT} http://localhost:${API_PORT}`,
+                "img-src 'self' data: http://localhost:*",
+                "font-src 'self' data:",
+            ].join("; ")
+            : [
+                "default-src 'self'",
+                "script-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                "img-src 'self' data:",
+                "font-src 'self' data:",
+            ].join("; ");
+        callback({
+            responseHeaders: {
+                ...details.responseHeaders,
+                "Content-Security-Policy": [csp],
+            },
+        });
+    });
+}
 // Allow running without SUID sandbox on machines without root access
 electron_1.app.commandLine.appendSwitch("no-sandbox");
 electron_1.app.whenReady().then(() => {
+    setupCSP();
     startApiServer();
-    // Small delay for API to start
+    startFrontendServer();
+    // Give Vite + API time to start before loading the window
     setTimeout(() => {
         createWindow();
-    }, 2000);
+    }, 4000);
 });
 electron_1.app.on("window-all-closed", () => {
     // Keep running in tray on Linux
 });
 electron_1.app.on("before-quit", () => {
     apiProcess?.kill("SIGTERM");
+    frontendProcess?.kill("SIGTERM");
 });
 electron_1.app.on("activate", () => {
     if (mainWindow === null)
