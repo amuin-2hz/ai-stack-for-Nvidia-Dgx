@@ -18,7 +18,19 @@ MODEL_DIR="${BASE_DIR}/models/${TARGET_SUBDIR}"
 CACHE_DIR="${BASE_DIR}/cache/hf"
 PROXY_ENV_FILE="${BASE_DIR}/configs/proxy.env"
 
-mkdir -p "${MODEL_DIR}" "${CACHE_DIR}"
+# ── Stage into .temp first so programs can monitor in-progress downloads ──
+TEMP_DIR="${MODEL_DIR}/.temp"
+COMPLETE_MARKER="${MODEL_DIR}/.download-complete"
+
+# Skip if already marked complete
+if [[ -f "${COMPLETE_MARKER}" ]]; then
+  echo "Model already downloaded (${COMPLETE_MARKER} exists)."
+  exit 0
+fi
+
+# Clean stale temp from previous failed attempt
+rm -rf "${TEMP_DIR}"
+mkdir -p "${TEMP_DIR}" "${CACHE_DIR}"
 
 if [[ -f "${PROXY_ENV_FILE}" ]]; then
   set -a
@@ -56,9 +68,11 @@ fi
 echo "Downloading only serving-essential snapshot files by default." >&2
 echo "Set AI_STACK_FULL_MODEL_DOWNLOAD=1 to disable default excludes." >&2
 
+# ── Download into .temp staging directory ──
 docker run --rm \
   -e HF_TOKEN="${HF_TOKEN:-}" \
   -e HF_HOME=/hf-cache \
+  -e HOME=/tmp \
   -e HTTP_PROXY="${HTTP_PROXY:-}" \
   -e HTTPS_PROXY="${HTTPS_PROXY:-}" \
   -e ALL_PROXY="${ALL_PROXY:-}" \
@@ -66,10 +80,29 @@ docker run --rm \
   -e https_proxy="${https_proxy:-}" \
   -e all_proxy="${all_proxy:-}" \
   --network host \
+  -u "$(id -u):$(id -g)" \
   -v "${CACHE_DIR}:/hf-cache" \
-  -v "${MODEL_DIR}:/models" \
+  -v "${TEMP_DIR}:/models" \
   "${IMAGE_NAME}" download "${REPO_ID}" \
   --local-dir /models \
   --resume-download \
   "${DEFAULT_EXCLUDES[@]}" \
   "$@"
+
+# ── Move from .temp to final location ──
+echo "Moving downloaded files from .temp to final location..."
+mkdir -p "${MODEL_DIR}"
+# Use rsync if available to avoid re-copy if runs overlap; fall back to mv
+if command -v rsync &>/dev/null; then
+  rsync -a --remove-source-files "${TEMP_DIR}/" "${MODEL_DIR}/"
+else
+  shopt -s dotglob nullglob
+  for f in "${TEMP_DIR}"/*; do
+    mv -f "$f" "${MODEL_DIR}/"
+  done
+fi
+rm -rf "${TEMP_DIR}"
+
+# ── Write completion marker → DB reconciler picks this up ──
+touch "${COMPLETE_MARKER}"
+echo "Download complete: ${MODEL_DIR}"

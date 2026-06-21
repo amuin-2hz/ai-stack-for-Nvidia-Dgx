@@ -107,6 +107,16 @@ function setupCSP() {
 }
 // Allow running without SUID sandbox on machines without root access
 electron_1.app.commandLine.appendSwitch("no-sandbox");
+// When running under a virtual framebuffer (Xvfb), disable GPU
+// compositing to avoid GLX / passthrough errors.
+// Set ELECTRON_DISABLE_GPU=1 to force; otherwise auto-detect via Xvfb hint.
+const display = process.env.DISPLAY ?? "";
+const xvfbDisplay = process.env.XVFB_DISPLAY ?? "";
+if (process.env.ELECTRON_DISABLE_GPU === "1" || display.startsWith(":99") || xvfbDisplay !== "") {
+    electron_1.app.commandLine.appendSwitch("disable-gpu");
+    electron_1.app.commandLine.appendSwitch("disable-software-rasterizer");
+    console.log("[electron] GPU disabled — virtual display mode (DISPLAY=%s)", display);
+}
 electron_1.app.whenReady().then(() => {
     setupCSP();
     startApiServer();

@@ -1,6 +1,8 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import type { TaskRecord } from "./types.js";
+import { access, readdir, readFile, stat } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+import { upsertModelFile } from "./store.js";
+import { fetchHuggingFaceTotalBytes } from "./modelManifest.js";
+import type { ModelFileRecord, TaskRecord } from "./types.js";
 
 export interface TaskProgressInfo {
   progress_percent: number;
@@ -8,6 +10,58 @@ export interface TaskProgressInfo {
   total_bytes?: number;
   target_path?: string;
   complete_on_disk?: boolean;
+}
+
+
+export async function syncDownloadTaskFiles(task: TaskRecord, workspaceRoot: string): Promise<void> {
+  if (task.type !== "download") return;
+  const modelId = String(task.metadata?.alias ?? task.metadata?.model_id ?? "");
+  const targetPath = typeof task.metadata?.target_path === "string" ? resolve(workspaceRoot, task.metadata.target_path) : undefined;
+  if (!modelId || !targetPath || !isInside(resolve(workspaceRoot), targetPath)) return;
+  const records = await collectDownloadFileRecords(modelId, targetPath, task.id, task.status, task.error);
+  for (const record of records) upsertModelFile(record);
+}
+
+export async function collectDownloadFileRecords(
+  modelId: string,
+  targetPath: string,
+  taskId: string,
+  taskStatus: string,
+  error?: string
+): Promise<ModelFileRecord[]> {
+  const now = new Date().toISOString();
+  const finalFiles = await listFileEntries(targetPath, targetPath);
+  const tempFiles = await listFileEntries(join(targetPath, ".temp"), join(targetPath, ".temp"));
+  const records = new Map<string, ModelFileRecord>();
+
+  for (const file of tempFiles) {
+    records.set(file.relative_path, {
+      model_id: modelId,
+      relative_path: file.relative_path,
+      status: taskStatus === "failed" ? "failed" : taskStatus === "canceled" ? "canceled" : "downloading",
+      size_bytes: null,
+      downloaded_bytes: file.size_bytes,
+      task_id: taskId,
+      error: taskStatus === "failed" ? error ?? null : null,
+      updated_at: now
+    });
+  }
+
+  const finalStatus = taskStatus === "failed" ? "failed" : taskStatus === "canceled" ? "canceled" : "downloaded";
+  for (const file of finalFiles) {
+    records.set(file.relative_path, {
+      model_id: modelId,
+      relative_path: file.relative_path,
+      status: finalStatus,
+      size_bytes: file.size_bytes,
+      downloaded_bytes: file.size_bytes,
+      task_id: taskId,
+      error: taskStatus === "failed" ? error ?? null : null,
+      updated_at: now
+    });
+  }
+
+  return [...records.values()].filter((record) => !isInternalDownloadFile(record.relative_path));
 }
 
 export async function enrichTaskProgress(task: TaskRecord, workspaceRoot: string): Promise<TaskRecord & TaskProgressInfo> {
@@ -56,6 +110,28 @@ async function directorySize(path: string): Promise<number> {
   }
 }
 
+
+async function listFileEntries(root: string, base: string): Promise<Array<{ relative_path: string; size_bytes: number }>> {
+  try {
+    const info = await stat(root);
+    if (info.isFile()) return [{ relative_path: normalizeRelativePath(relative(base, root) || root.split("/").pop() || root), size_bytes: info.size }];
+    if (!info.isDirectory()) return [];
+    const entries = await readdir(root, { withFileTypes: true });
+    const nested = await Promise.all(entries.map((entry) => listFileEntries(join(root, entry.name), base)));
+    return nested.flat();
+  } catch {
+    return [];
+  }
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function isInternalDownloadFile(name: string): boolean {
+  return name === "" || name === ".download-complete" || name.endsWith("/.download-complete") || name.split("/").some((part) => part === ".temp");
+}
+
 function isInside(root: string, target: string): boolean {
   return target === root || target.startsWith(root + "/");
 }
@@ -71,27 +147,18 @@ async function expectedTotalBytes(task: TaskRecord): Promise<number | undefined>
   return totalSizeCache.get(repoId);
 }
 
-async function fetchHuggingFaceTotalBytes(repoId: string): Promise<number | undefined> {
-  try {
-    const response = await fetch("https://huggingface.co/api/models/" + encodeURIComponent(repoId).replace(/%2F/g, "/") + "?blobs=true");
-    if (!response.ok) return undefined;
-    const payload = await response.json() as { siblings?: Array<{ rfilename?: string; size?: number }> };
-    const files = payload.siblings ?? [];
-    const total = files.filter((file) => file.rfilename && !isExcludedSnapshotFile(file.rfilename)).reduce((sum, file) => sum + (Number(file.size) || 0), 0);
-    return total || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isExcludedSnapshotFile(name: string): boolean {
-  return name.startsWith(".git/") || name.startsWith(".cache/") || name.includes("/.git/") || /\.(msgpack|h5|ckpt|tflite|pb|flax|ot)$/.test(name);
-}
-
 async function looksCompleteDownloadedModel(path: string): Promise<boolean> {
+  // Check for explicit completion marker first (most authoritative)
+  const hasMarker = await (async () => {
+    try { await access(join(path, ".download-complete")); return true; } catch { return false; }
+  })();
+  if (hasMarker) return true;
+
   const files = await listFiles(path);
   if (!files.length) return false;
+  // Skip .temp directories (in-progress downloads) and .incomplete files
   if (files.some((file) => file.includes(".incomplete"))) return false;
+  if (files.some((file) => file.split("/").some((seg) => seg === ".temp"))) return false;
   const names = new Set(files.map((file) => file.split("/").pop() ?? file));
   const hasConfig = names.has("config.json") || names.has("cosyvoice.yaml") || names.has("config.yaml");
   const hasWeight = files.some((file) => /\.(safetensors|bin|gguf|pt|pth|onnx|engine)$/.test(file));

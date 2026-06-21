@@ -1,8 +1,45 @@
 export type CompatibilityStatus = "compatible" | "possible" | "needs_conversion" | "unsupported";
-export type ServiceType = "vllm" | "trtllm" | "audio" | "lmstudio";
+export type ServiceType = "vllm" | "trtllm" | "pytorch" | "lmstudio";
 
 export interface CompatibilityInfo {
   status: CompatibilityStatus;
+  reason: string;
+}
+
+
+export type ModelFileStatus = "planned" | "downloading" | "downloaded" | "failed" | "canceled";
+
+export interface ModelFileRecord {
+  model_id: string;
+  relative_path: string;
+  status: ModelFileStatus;
+  size_bytes?: number | null;
+  downloaded_bytes?: number | null;
+  task_id?: string | null;
+  error?: string | null;
+  updated_at: string;
+}
+
+
+export type ModelAuditSeverity = "info" | "warning" | "error";
+
+export interface ModelAuditIssue {
+  code: string;
+  severity: ModelAuditSeverity;
+  message: string;
+}
+
+export interface ModelRuntimeRecommendation {
+  runtime: string;
+  status: CompatibilityStatus | "external";
+  reason: string;
+}
+
+export interface ModelGpuMemoryAudit {
+  status: "fits" | "tight" | "insufficient" | "unknown";
+  required_bytes?: number | null;
+  available_bytes?: number | null;
+  total_bytes?: number | null;
   reason: string;
 }
 
@@ -39,6 +76,11 @@ export interface ModelRecord {
     };
   };
   compatibility: Record<string, CompatibilityInfo>;
+  audit: {
+    issues: ModelAuditIssue[];
+    recommendations: ModelRuntimeRecommendation[];
+    gpu_memory: ModelGpuMemoryAudit;
+  };
   status: {
     download: string;
     deploy: string;
@@ -94,7 +136,22 @@ export interface WorkbenchState {
 }
 
 
-export type TaskStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface RepairAction {
+  action: string;
+  label: string;
+  detail?: string;
+}
+
+export interface TaskDiagnostic {
+  category: string;
+  severity: "info" | "warning" | "error";
+  stage?: "prepare" | "pull" | "start" | "health" | "download" | "launch" | "unknown";
+  message: string;
+  repair_actions: RepairAction[];
+}
+
+export type TaskStatus = "queued" | "running" | "paused" | "canceling" | "canceled" | "succeeded" | "failed";
 export type TaskType = "download" | "deploy" | "container";
 
 export interface TaskRecord {
@@ -111,6 +168,7 @@ export interface TaskRecord {
   finished_at?: string;
   exit_code?: number | null;
   error?: string;
+  diagnostic?: TaskDiagnostic;
 }
 
 export interface ActiveDeploymentRecord {
@@ -154,5 +212,8 @@ export interface ContainerSettings {
   management_mode: ContainerManagementMode;
   restart_policy: ContainerRestartPolicy;
   auto_restart: boolean;
+  image?: string;
+  components?: string[];
+  is_default?: boolean;
   updated_at: string;
 }

@@ -33,7 +33,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         ? "/v1"
         : "";
       const healthSuffix =
-        deployment.service_type === "audio" ? "/healthz" : "/health";
+        deployment.service_type === "pytorch" ? "/healthz" : "/health";
       return {
         ...deployment,
         public_port: config.public_port,
@@ -139,7 +139,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
   }
 
   function runtimeHealthUrl(serviceType: string): string {
-    if (serviceType === "audio") return audioServiceUrl + "/healthz";
+    if (serviceType === "pytorch") return audioServiceUrl + "/healthz";
     if (serviceType === "vllm")
       return (
         process.env.VLLM_INTERNAL_HEALTH_URL ??

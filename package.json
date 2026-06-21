@@ -4,7 +4,10 @@
   "private": true,
   "main": "apps/main/dist/index.js",
   "scripts": {
-    "dev": "tsc -p apps/main/tsconfig.json && electron . --no-sandbox",
+    "dev": "bash scripts/dev-electron.sh",
+    "dev:web": "DISPLAY_MODE=web bash scripts/dev-electron.sh",
+    "dev:electron": "DISPLAY_MODE=electron bash scripts/dev-electron.sh",
+    "dev:xvfb": "DISPLAY_MODE=xvfb bash scripts/dev-electron.sh",
     "build:main": "tsc -p apps/main/tsconfig.json",
     "build:api": "npm --prefix apps/api run build",
     "build:frontend": "npm --prefix apps/frontend run build",

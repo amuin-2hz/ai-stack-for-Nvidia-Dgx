@@ -6,7 +6,7 @@ import { runCommand } from "./utils.js";
 export const servicePorts = {
   vllm: Number(process.env.VLLM_PUBLIC_PORT ?? "30000"),
   trtllm: Number(process.env.TRTLLM_PUBLIC_PORT ?? "31000"),
-  audio: Number(process.env.AUDIO_PUBLIC_PORT ?? "32000")
+  pytorch: Number(process.env.PYTORCH_PUBLIC_PORT ?? process.env.AUDIO_PUBLIC_PORT ?? "32000")
 };
 
 export async function systemCheck(): Promise<Record<string, unknown>> {
@@ -163,13 +163,26 @@ async function readNvidiaProcGpus(): Promise<Array<Record<string, unknown>>> {
 }
 
 async function dockerStatus(): Promise<Record<string, unknown>> {
-  const result = await runCommand("docker", ["ps", "--format", "{{.Names}}\t{{.Status}}"], 5000);
-  if (!result.ok) return { ok: false, detail: result.stderr || "Docker CLI is unavailable or cannot access the Docker socket." };
-  const containers = result.stdout.split("\n").filter(Boolean).map((line) => {
+  const [psResult, verResult, composeResult] = await Promise.all([
+    runCommand("docker", ["ps", "--format", "{{.Names}}\t{{.Status}}"], 5000),
+    runCommand("docker", ["--version"], 3000),
+    runCommand("docker", ["compose", "version"], 3000)
+  ]);
+  if (!psResult.ok) return { ok: false, detail: psResult.stderr || "Docker CLI is unavailable or cannot access the Docker socket." };
+  const containers = psResult.stdout.split("\n").filter(Boolean).map((line) => {
     const [name, status] = line.split("\t");
     return { name, status };
   });
-  return { ok: true, detail: "Docker is reachable from the AMUIN AI STACK API process.", containers };
+  const dockerVersion = verResult.ok ? (verResult.stdout || "").replace("Docker version ", "").split(",")[0].trim() : "unknown";
+  const composeVersion = composeResult.ok ? (composeResult.stdout || "").replace("Docker Compose version ", "").trim() : "not installed";
+  return {
+    ok: true,
+    detail: "Docker is reachable from the AMUIN AI STACK API process.",
+    version: dockerVersion,
+    compose_version: composeVersion,
+    container_count: containers.length,
+    containers
+  };
 }
 
 async function nvidiaStatus(): Promise<Record<string, unknown>> {

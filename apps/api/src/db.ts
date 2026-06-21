@@ -3,8 +3,8 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const DATA_DIR = join(homedir(), ".local", "share", "ai-stack");
-const DB_PATH = join(DATA_DIR, "data.db");
+const DATA_DIR = process.env.AI_STACK_DATA_DIR ?? join(homedir(), ".local", "share", "ai-stack");
+const DB_PATH = process.env.AI_STACK_DB_PATH ?? join(DATA_DIR, "data.db");
 
 let _db: Database.Database | null = null;
 
@@ -42,6 +42,20 @@ export function initDb(): void {
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS model_files (
+      model_id         TEXT NOT NULL,
+      relative_path    TEXT NOT NULL,
+      status           TEXT NOT NULL,
+      size_bytes       INTEGER,
+      downloaded_bytes INTEGER,
+      task_id          TEXT,
+      error            TEXT,
+      updated_at       TEXT NOT NULL,
+      PRIMARY KEY (model_id, relative_path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_model_files_task_id ON model_files(task_id);
 
     CREATE TABLE IF NOT EXISTS chats (
       id         TEXT PRIMARY KEY,

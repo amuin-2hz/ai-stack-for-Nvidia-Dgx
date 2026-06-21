@@ -34,7 +34,7 @@ function defaultContainerSettings(): Record<string, ContainerSettings> {
   return {
     vllm: { key: "vllm", public_port: 30000, management_mode: "resident", restart_policy: "no", auto_restart: false, updated_at: now() },
     trtllm: { key: "trtllm", public_port: 31000, management_mode: "resident", restart_policy: "no", auto_restart: false, updated_at: now() },
-    audio: { key: "audio", public_port: 32000, management_mode: "resident", restart_policy: "unless-stopped", auto_restart: true, updated_at: now() }
+    pytorch: { key: "pytorch", public_port: 32000, management_mode: "resident", restart_policy: "unless-stopped", auto_restart: true, updated_at: now() }
   };
 }
 

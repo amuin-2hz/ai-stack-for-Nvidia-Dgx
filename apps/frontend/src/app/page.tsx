@@ -267,7 +267,7 @@ export default function Home() {
               <div><div className={workbench.metaLabel}>Files</div><div className={workbench.metaValue}>{model.local.file_count} files, {model.local.weight_files} weights</div></div>
             </div>
             <div className={workbench.compat}>
-              {["vllm", "trtllm", "audio", "lmstudio"].map((service) => {
+              {["vllm", "trtllm", "pytorch", "lmstudio"].map((service) => {
                 const compat = model.compatibility[service];
                 return compat ? (
                   <div className={workbench.compatRow} key={service}>
@@ -279,7 +279,7 @@ export default function Home() {
               })}
             </div>
             <div className={workbench.actions}>
-              {["vllm", "trtllm", "audio"].map((service) => {
+              {["vllm", "trtllm", "pytorch"].map((service) => {
                 const compat = model.compatibility[service];
                 const disabled = !compat || compat.status === "unsupported";
                 return (
@@ -294,7 +294,7 @@ export default function Home() {
                 );
               })}
             </div>
-            {["vllm", "trtllm", "audio"].map((service) => {
+            {["vllm", "trtllm", "pytorch"].map((service) => {
               const key = model.id + ":" + service;
               return deploymentPlans[key] ? <pre className={workbench.plan} key={key}>{deploymentPlans[key]}</pre> : null;
             })}
