@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const node_child_process_1 = require("node:child_process");
+const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 let mainWindow = null;
 let apiProcess = null;
@@ -15,27 +16,61 @@ function getAppRoot() {
         ? (0, node_path_1.join)(__dirname, "..", "..", "..")
         : (0, node_path_1.join)(process.resourcesPath, "app.asar.unpacked");
 }
+function getWorkspaceRoot() {
+    if (isDev)
+        return getAppRoot();
+    const dataHome = process.env.XDG_DATA_HOME || (0, node_path_1.join)(electron_1.app.getPath("home"), ".local", "share");
+    return (0, node_path_1.join)(dataHome, "ai-stack");
+}
+function copyRuntimeDir(sourceRoot, workspaceRoot, name, overwrite) {
+    const source = (0, node_path_1.join)(sourceRoot, name);
+    if (!(0, node_fs_1.existsSync)(source))
+        return;
+    (0, node_fs_1.cpSync)(source, (0, node_path_1.join)(workspaceRoot, name), {
+        recursive: true,
+        force: overwrite,
+        errorOnExist: false,
+    });
+}
+function prepareRuntimeWorkspace() {
+    const workspaceRoot = getWorkspaceRoot();
+    if (isDev)
+        return workspaceRoot;
+    (0, node_fs_1.mkdirSync)(workspaceRoot, { recursive: true });
+    for (const name of ["models", "cache", "state", "logs", "tmp"]) {
+        (0, node_fs_1.mkdirSync)((0, node_path_1.join)(workspaceRoot, name), { recursive: true });
+    }
+    const sourceRoot = getAppRoot();
+    copyRuntimeDir(sourceRoot, workspaceRoot, "deploy", true);
+    copyRuntimeDir(sourceRoot, workspaceRoot, "ops", true);
+    copyRuntimeDir(sourceRoot, workspaceRoot, "configs", false);
+    return workspaceRoot;
+}
+function apiEnv(workspaceRoot) {
+    return {
+        ...process.env,
+        PORT: String(API_PORT),
+        FRONTEND_PORT: String(FRONTEND_PORT),
+        AI_STACK_BIND_ADDR: "127.0.0.1",
+        AI_STACK_BASE: workspaceRoot,
+        MODELS_ROOT: (0, node_path_1.join)(workspaceRoot, "models"),
+        STATE_ROOT: (0, node_path_1.join)(workspaceRoot, "state"),
+        LOGS_ROOT: (0, node_path_1.join)(workspaceRoot, "logs"),
+    };
+}
 function startApiServer() {
+    const workspaceRoot = prepareRuntimeWorkspace();
     if (isDev) {
         apiProcess = (0, node_child_process_1.spawn)("npx", ["tsx", "apps/api/src/server.ts"], {
             cwd: getAppRoot(),
-            env: {
-                ...process.env,
-                PORT: String(API_PORT),
-                FRONTEND_PORT: String(FRONTEND_PORT),
-                AI_STACK_BIND_ADDR: "127.0.0.1",
-            },
+            env: apiEnv(workspaceRoot),
             stdio: "pipe",
         });
     }
     else {
-        apiProcess = (0, node_child_process_1.spawn)("node", [(0, node_path_1.join)(getAppRoot(), "apps", "api", "dist", "server.js")], {
-            env: {
-                ...process.env,
-                PORT: String(API_PORT),
-                FRONTEND_PORT: String(FRONTEND_PORT),
-                AI_STACK_BIND_ADDR: "127.0.0.1",
-            },
+        apiProcess = (0, node_child_process_1.spawn)(process.execPath, [(0, node_path_1.join)(getAppRoot(), "apps", "api", "dist", "server.js")], {
+            cwd: workspaceRoot,
+            env: { ...apiEnv(workspaceRoot), ELECTRON_RUN_AS_NODE: "1" },
             stdio: "pipe",
         });
     }

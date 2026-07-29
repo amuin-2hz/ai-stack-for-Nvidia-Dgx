@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, session } from "electron";
 import { spawn, ChildProcess } from "node:child_process";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 let mainWindow: BrowserWindow | null = null;
@@ -17,29 +18,66 @@ function getAppRoot(): string {
     : join(process.resourcesPath, "app.asar.unpacked");
 }
 
+function getWorkspaceRoot(): string {
+  if (isDev) return getAppRoot();
+  const dataHome = process.env.XDG_DATA_HOME || join(app.getPath("home"), ".local", "share");
+  return join(dataHome, "ai-stack");
+}
+
+function copyRuntimeDir(sourceRoot: string, workspaceRoot: string, name: string, overwrite: boolean): void {
+  const source = join(sourceRoot, name);
+  if (!existsSync(source)) return;
+  cpSync(source, join(workspaceRoot, name), {
+    recursive: true,
+    force: overwrite,
+    errorOnExist: false,
+  });
+}
+
+function prepareRuntimeWorkspace(): string {
+  const workspaceRoot = getWorkspaceRoot();
+  if (isDev) return workspaceRoot;
+
+  mkdirSync(workspaceRoot, { recursive: true });
+  for (const name of ["models", "cache", "state", "logs", "tmp"]) {
+    mkdirSync(join(workspaceRoot, name), { recursive: true });
+  }
+
+  const sourceRoot = getAppRoot();
+  copyRuntimeDir(sourceRoot, workspaceRoot, "deploy", true);
+  copyRuntimeDir(sourceRoot, workspaceRoot, "ops", true);
+  copyRuntimeDir(sourceRoot, workspaceRoot, "configs", false);
+  return workspaceRoot;
+}
+
+function apiEnv(workspaceRoot: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PORT: String(API_PORT),
+    FRONTEND_PORT: String(FRONTEND_PORT),
+    AI_STACK_BIND_ADDR: "127.0.0.1",
+    AI_STACK_BASE: workspaceRoot,
+    MODELS_ROOT: join(workspaceRoot, "models"),
+    STATE_ROOT: join(workspaceRoot, "state"),
+    LOGS_ROOT: join(workspaceRoot, "logs"),
+  };
+}
+
 function startApiServer(): void {
+  const workspaceRoot = prepareRuntimeWorkspace();
   if (isDev) {
     apiProcess = spawn("npx", ["tsx", "apps/api/src/server.ts"], {
       cwd: getAppRoot(),
-      env: {
-        ...process.env,
-        PORT: String(API_PORT),
-        FRONTEND_PORT: String(FRONTEND_PORT),
-        AI_STACK_BIND_ADDR: "127.0.0.1",
-      },
+      env: apiEnv(workspaceRoot),
       stdio: "pipe",
     });
   } else {
     apiProcess = spawn(
-      "node",
+      process.execPath,
       [join(getAppRoot(), "apps", "api", "dist", "server.js")],
       {
-        env: {
-          ...process.env,
-          PORT: String(API_PORT),
-          FRONTEND_PORT: String(FRONTEND_PORT),
-          AI_STACK_BIND_ADDR: "127.0.0.1",
-        },
+        cwd: workspaceRoot,
+        env: { ...apiEnv(workspaceRoot), ELECTRON_RUN_AS_NODE: "1" },
         stdio: "pipe",
       }
     );
