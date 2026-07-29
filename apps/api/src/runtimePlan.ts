@@ -1,5 +1,5 @@
 import { compatibilityFor, servicePorts } from "./modelRegistry.js";
-import { shellQuote } from "./utils.js";
+import { shellQuote, slugify } from "./utils.js";
 import type { ContainerSettings, DeploymentRecord, ModelRecord, ServiceType } from "./types.js";
 
 export interface RuntimeLaunchPlan {
@@ -11,7 +11,7 @@ export interface RuntimeLaunchPlan {
 }
 
 export interface RuntimePlanStage {
-  id: "prepare" | "pull" | "start" | "health";
+  id: "prepare" | "pull" | "start" | "load" | "health";
   label: string;
   detail: string;
   target?: string;
@@ -40,22 +40,25 @@ export function createRuntimePlan(
   settings?: ContainerSettings
 ): RuntimePlan {
   const resolvedSettings = settingsFor(serviceType, settings);
+  const deploymentId = deploymentInstanceId(serviceType, model.id, openaiModel);
+  const containerName = deploymentContainerName(serviceType, model.id, openaiModel);
   const launch = launchPlanFor(serviceType, model.id, openaiModel, args, baseDir, resolvedSettings);
   const baseUrl = publicBaseUrl(serviceType, resolvedSettings.public_port);
   const health = healthUrl(serviceType, resolvedSettings.public_port);
 
   return {
     ...deployment,
-    deployment_id: "plan_" + model.id + "_" + serviceType,
+    deployment_id: deploymentId,
     model_id: model.id,
     status: "planned",
+    container_name: containerName,
     public_port: resolvedSettings.public_port,
     base_url: baseUrl,
     health_url: health,
     openai_models: [openaiModel],
     compatibility: compatibilityFor(model, serviceType),
     launch,
-    stages: stagesFor(serviceType, resolvedSettings, baseUrl, health),
+    stages: stagesFor(serviceType, resolvedSettings, baseUrl, health, containerName),
     args
   };
 }
@@ -69,10 +72,20 @@ export function runtimeCommandFor(
 ): RuntimeCommand {
   const resolvedSettings = settingsFor(serviceType, settings);
   if (serviceType === "vllm") {
+    const containerName = deploymentContainerName(serviceType, modelId, openaiModel);
+    const isOmniCoder = /omnicoder/i.test(modelId + " " + openaiModel);
+    const requestedGpuUtilization = Number(args.gpu_memory_utilization ?? process.env.VLLM_GPU_MEMORY_UTILIZATION ?? "0.20");
+    const requestedMaxSeqs = Number(args.max_num_seqs ?? process.env.VLLM_MAX_NUM_SEQS ?? "16");
+    // OmniCoder-9B needs more than a 20% engine budget for its 17.7 GiB
+    // weights, encoder cache and a minimal KV cache.
+    const gpuMemoryUtilization = isOmniCoder ? Math.max(requestedGpuUtilization, 0.30) : requestedGpuUtilization;
+    const maxNumSeqs = isOmniCoder ? Math.min(requestedMaxSeqs, 4) : requestedMaxSeqs;
+
     return {
       command: "bash",
-      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f vllm-service >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.vllm.yml pull vllm-worker; echo __AMUIN_STAGE__:start:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.vllm.yml up -d vllm-worker"],
+      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f \"$VLLM_CONTAINER_NAME\" >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker image inspect \"$VLLM_IMAGE\" >/dev/null 2>&1 || docker pull \"$VLLM_IMAGE\"; echo __AMUIN_STAGE__:start:running; docker run -d --name \"$VLLM_CONTAINER_NAME\" --label amuin.role=model-runtime --label amuin.runtime=vllm --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus all --ipc host -p \"$AI_STACK_BIND_ADDR:$VLLM_PUBLIC_PORT:8000\" -v \"$PWD/models/$MODEL_ALIAS:/models/$MODEL_ALIAS:ro\" -v \"$PWD/cache/hf:/root/.cache/huggingface\" -e \"HF_TOKEN=$HF_TOKEN\" -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \"$VLLM_IMAGE\" \"/models/$MODEL_ALIAS\" --served-model-name \"$OPENAI_MODEL\" --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size \"$VLLM_TENSOR_PARALLEL_SIZE\" --max-model-len \"$VLLM_MAX_MODEL_LEN\" --gpu-memory-utilization \"$VLLM_GPU_MEMORY_UTILIZATION\" --max-num-seqs \"$VLLM_MAX_NUM_SEQS\" --kv-cache-dtype \"$VLLM_KV_CACHE_DTYPE\""],
       env: {
+        VLLM_CONTAINER_NAME: containerName,
         MODEL_ALIAS: modelId,
         OPENAI_MODEL: openaiModel,
         VLLM_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.VLLM_IMAGE ?? "vllm/vllm-openai:latest"),
@@ -80,11 +93,10 @@ export function runtimeCommandFor(
         AI_STACK_BIND_ADDR: validBindAddress(process.env.AI_STACK_BIND_ADDR),
         AI_STACK_RESTART_POLICY: resolvedSettings.restart_policy,
         VLLM_MAX_MODEL_LEN: String(args.max_model_len ?? process.env.VLLM_MAX_MODEL_LEN ?? "4096"),
-        VLLM_GPU_MEMORY_UTILIZATION: String(args.gpu_memory_utilization ?? process.env.VLLM_GPU_MEMORY_UTILIZATION ?? "0.15"),
-        VLLM_MAX_NUM_SEQS: String(args.max_num_seqs ?? process.env.VLLM_MAX_NUM_SEQS ?? "16"),
+        VLLM_GPU_MEMORY_UTILIZATION: String(gpuMemoryUtilization),
+        VLLM_MAX_NUM_SEQS: String(maxNumSeqs),
         VLLM_TENSOR_PARALLEL_SIZE: String(args.tensor_parallel_size ?? process.env.VLLM_TENSOR_PARALLEL_SIZE ?? "1"),
-        VLLM_KV_CACHE_DTYPE: String(args.kv_cache_dtype ?? process.env.VLLM_KV_CACHE_DTYPE ?? "auto"),
-        VLLM_SWAP_SPACE: String(args.swap_space ?? process.env.VLLM_SWAP_SPACE ?? "4")
+        VLLM_KV_CACHE_DTYPE: String(args.kv_cache_dtype ?? process.env.VLLM_KV_CACHE_DTYPE ?? "auto")
       }
     };
   }
@@ -92,7 +104,7 @@ export function runtimeCommandFor(
   if (serviceType === "pytorch") {
     return {
       command: "bash",
-      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f pytorch-service >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker compose -f deploy/compose/docker-compose.yml pull pytorch-service; echo __AMUIN_STAGE__:start:running; docker compose -f deploy/compose/docker-compose.yml up -d pytorch-service"],
+      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f pytorch-service >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.pytorch.yml build pytorch-service; echo __AMUIN_STAGE__:start:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.pytorch.yml up -d pytorch-service"],
       env: {
         PYTORCH_PUBLIC_PORT: String(resolvedSettings.public_port),
         PYTORCH_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.PYTORCH_IMAGE ?? "nvcr.io/nvidia/pytorch:25.04-py3"),
@@ -102,10 +114,12 @@ export function runtimeCommandFor(
   }
 
   if (serviceType === "trtllm") {
+    const containerName = deploymentContainerName(serviceType, modelId, openaiModel);
     return {
       command: "bash",
       args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; echo __AMUIN_STAGE__:pull:running; echo __AMUIN_STAGE__:start:running; ops/scripts/start-trtllm-model.sh " + shellQuote(modelId) + " " + shellQuote(String(resolvedSettings.public_port))],
       env: {
+        TRTLLM_CONTAINER_NAME: containerName,
         TRTLLM_RESTART_POLICY: resolvedSettings.restart_policy,
         TRTLLM_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.TRTLLM_IMAGE ?? "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc6"),
         TRTLLM_MAX_BATCH_SIZE: String(args.max_batch_size ?? process.env.TRTLLM_MAX_BATCH_SIZE ?? "8"),
@@ -141,14 +155,30 @@ export function healthUrl(serviceType: ServiceType, port: number): string {
   return "http://localhost:" + port + (serviceType === "pytorch" ? "/healthz" : "/health");
 }
 
+export function deploymentInstanceId(serviceType: ServiceType, modelId: string, openaiModel = modelId): string {
+  if (serviceType === "pytorch") return "svc_pytorch";
+  if (serviceType === "trtllm") return "svc_trtllm";
+  return "svc_" + serviceType + "_" + deploymentSlug(modelId, openaiModel);
+}
 
-function stagesFor(serviceType: ServiceType, settings: ContainerSettings, baseUrl: string, health: string): RuntimePlanStage[] {
-  const containerName = serviceType === "vllm" ? "vllm-service" : serviceType === "trtllm" ? "trtllm-service" : "pytorch-service";
+export function deploymentContainerName(serviceType: ServiceType, modelId: string, openaiModel = modelId): string {
+  if (serviceType === "pytorch") return "pytorch-service";
+  if (serviceType === "trtllm") return "trtllm-service";
+  return "vllm_" + deploymentSlug(modelId, openaiModel);
+}
+
+function deploymentSlug(modelId: string, openaiModel: string): string {
+  const base = openaiModel && openaiModel !== modelId ? modelId + "_" + openaiModel : modelId;
+  return slugify(base).replace(/-/g, "_").slice(0, 48) || "model";
+}
+
+function stagesFor(serviceType: ServiceType, settings: ContainerSettings, baseUrl: string, health: string, containerName: string): RuntimePlanStage[] {
   return [
-    { id: "prepare", label: "Prepare runtime", detail: "Remove any stale fixed runtime container and apply configured runtime environment.", target: containerName },
+    { id: "prepare", label: "Prepare runtime", detail: "Prepare the dedicated model runtime container and apply configured runtime environment.", target: containerName },
     { id: "pull", label: "Pull image", detail: "Pull or verify the runtime image before starting the container.", target: serviceType },
     { id: "start", label: "Start runtime", detail: "Create and start " + serviceType + " on public port " + settings.public_port + ".", target: baseUrl },
-    { id: "health", label: "Check health", detail: "Verify the runtime health endpoint before treating the deployment as ready.", target: health }
+    { id: "load", label: "Load model", detail: "Wait for the runtime to load the model and expose it in the model list.", target: ["vllm", "trtllm"].includes(serviceType) ? baseUrl + "/models" : baseUrl },
+    { id: "health", label: "Ready check", detail: "Verify the runtime health endpoint before treating the deployment as ready.", target: health }
   ];
 }
 
@@ -182,7 +212,7 @@ function notesFor(serviceType: ServiceType, settings: ContainerSettings): string
     return ["Uses configured public port " + settings.public_port + " and serves OpenAI traffic at /v1."];
   }
   if (serviceType === "pytorch") {
-    return ["PyTorch service serves audio models (Whisper, FunASR, CosyVoice)."];
+    return ["Uses the configured generic PyTorch environment. Business-specific services such as FunASR should be created as custom runtimes."];
   }
   if (serviceType === "trtllm") {
     return ["TensorRT-LLM remains an advanced route; validate checkpoint support before starting."];

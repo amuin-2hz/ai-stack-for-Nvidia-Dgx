@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tasks</title>
+  <link rel="stylesheet" href="../style/tasks.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./tasks.html">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </a>
+        </nav>
+
+        <div class="sideNavFooter">
+          <button class="sideNavItem sideNavFooterItem" type="button">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </button>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <section class="taskBanner">
+          <div class="taskBannerInner">
+            <span class="taskBannerEyebrow">AMUIN AI STACK</span>
+            <h1 data-i18n data-zh="任务" data-en="Tasks">任务</h1>
+            <p data-i18n data-zh="跟踪下载、部署、容器操作任务，并查看实时日志。" data-en="Track download, deployment, and container tasks with real-time logs.">跟踪下载、部署、容器操作任务，并查看实时日志。</p>
+          </div>
+          <div class="taskBannerDecor"></div>
+        </section>
+
+        <section class="taskSummaryGrid" aria-label="任务统计">
+          <article class="summaryCard">
+            <span data-i18n data-zh="进行中" data-en="In Progress">进行中</span>
+            <strong id="summaryRunningCount">0</strong>
+          </article>
+          <article class="summaryCard">
+            <span data-i18n data-zh="失败" data-en="Failed">失败</span>
+            <strong id="summaryFailedCount">8</strong>
+          </article>
+          <article class="summaryCard">
+            <span data-i18n data-zh="下载" data-en="Downloads">下载</span>
+            <strong id="summaryDownloadCount">3</strong>
+          </article>
+          <article class="summaryCard">
+            <span data-i18n data-zh="部署" data-en="Deployments">部署</span>
+            <strong id="summaryDeployCount">4</strong>
+          </article>
+        </section>
+
+        <section class="taskWorkspace">
+          <section class="taskPanel taskMonitorPanel">
+            <header class="panelHeader">
+              <div>
+                <h2 data-i18n data-zh="任务监控" data-en="Task Monitor">任务监控</h2>
+                <p data-i18n data-zh="下载、部署和容器操作任务记录保存在这里；左侧看状态，右侧看日志。" data-en="Download, deploy, and container task history is listed here. View status on the left and logs on the right.">下载、部署和容器操作任务记录保存在这里；左侧看状态，右侧看日志。</p>
+              </div>
+            </header>
+            <div class="taskList" id="taskList" aria-label="任务列表"></div>
+          </section>
+
+          <section class="taskPanel taskLogPanel">
+            <header class="panelHeader panelHeaderSplit">
+              <div>
+                <h2 data-i18n data-zh="任务日志" data-en="Task Logs">任务日志</h2>
+              </div>
+              <button class="refreshButton" type="button" id="refreshLogButton" data-i18n data-zh="刷新" data-en="Refresh">刷新</button>
+            </header>
+
+            <div class="taskAlertCard" id="taskAlertCard">
+              <div class="taskAlertHeader">
+                <strong id="taskAlertTitle">失败诊断</strong>
+                <div class="taskAlertTags" id="taskAlertTags"></div>
+              </div>
+              <p id="taskAlertMessage">Runtime health check did not become ready in time.</p>
+              <div class="taskAlertActions">
+                <button class="ghostActionButton" type="button" data-i18n data-zh="查看运行时日志" data-en="View runtime logs">查看运行时日志</button>
+                <button class="primaryActionButton" type="button" data-i18n data-zh="重启运行时" data-en="Restart runtime">重启运行时</button>
+              </div>
+            </div>
+
+            <article class="taskDetailCard">
+              <div class="taskDetailMeta" id="taskDetailMeta"></div>
+              <div class="taskTimelineText" id="taskTimelineText"></div>
+            </article>
+          </section>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const pageState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentTaskId: "taskRuntimeHealth"
+    };
+
+    const taskRegistry = [
+      {
+        id: "taskRuntimeHealth",
+        categoryZh: "部署",
+        categoryEn: "Deploy",
+        modelName: "omnicoder-9b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "health",
+        summaryZh: "阶段: health - Runtime health check did not become ready in time. View runtime logs.",
+        summaryEn: "Stage: health - Runtime health check did not become ready in time. View runtime logs.",
+        detailTitleZh: "失败诊断",
+        detailTitleEn: "Failure Diagnosis",
+        detailMessage: "Runtime health check did not become ready in time.",
+        tags: ["warning", "health_check_timeout", "health"],
+        endpoint: "http://localhost:30000/v1",
+        healthEndpoint: "http://localhost:30000/health",
+        pipeline: "Prepare runtime(成功) -> Pull image(成功) -> Start runtime(成功) -> Check health(失败)",
+        finalLog: "Runtime health check did not become ready in time."
+      },
+      {
+        id: "taskPrepareRestart",
+        categoryZh: "部署",
+        categoryEn: "Deploy",
+        modelName: "omnicoder-9b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "prepare",
+        summaryZh: "阶段: prepare - Task process was interrupted or the management service restarted.",
+        summaryEn: "Stage: prepare - Task process was interrupted or the management service restarted.",
+        detailTitleZh: "部署中断",
+        detailTitleEn: "Deployment Interrupted",
+        detailMessage: "Task process was interrupted or the management service restarted.",
+        tags: ["warning", "service_restart"],
+        endpoint: "http://localhost:30000/v1",
+        healthEndpoint: "http://localhost:30000/health",
+        pipeline: "Prepare runtime(失败) -> Waiting for management service",
+        finalLog: "Task process was interrupted before completion."
+      },
+      {
+        id: "taskUnknownExit1",
+        categoryZh: "部署",
+        categoryEn: "Deploy",
+        modelName: "task_13e196c8",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "unknown",
+        summaryZh: "阶段: unknown - Command exited with code 1. View task logs.",
+        summaryEn: "Stage: unknown - Command exited with code 1. View task logs.",
+        detailTitleZh: "命令退出异常",
+        detailTitleEn: "Command Exit Error",
+        detailMessage: "Command exited with code 1.",
+        tags: ["error", "exit_code_1"],
+        endpoint: "http://localhost:30001/v1",
+        healthEndpoint: "http://localhost:30001/health",
+        pipeline: "Prepare image(成功) -> Start container(失败)",
+        finalLog: "Command exited with code 1."
+      },
+      {
+        id: "taskUnknownExit2",
+        categoryZh: "部署",
+        categoryEn: "Deploy",
+        modelName: "qwen3-ast-17b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "unknown",
+        summaryZh: "阶段: unknown - Command exited with code null. View task logs.",
+        summaryEn: "Stage: unknown - Command exited with code null. View task logs.",
+        detailTitleZh: "返回码为空",
+        detailTitleEn: "Null Exit Code",
+        detailMessage: "Command exited with code null.",
+        tags: ["warning", "exit_code_null"],
+        endpoint: "http://localhost:30002/v1",
+        healthEndpoint: "http://localhost:30002/health",
+        pipeline: "Prepare runtime(成功) -> Start runtime(失败)",
+        finalLog: "Command exited with code null."
+      },
+      {
+        id: "taskContainerStop",
+        categoryZh: "容器",
+        categoryEn: "Container",
+        modelName: "vllm-service",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "unknown",
+        summaryZh: "阶段: unknown - Task process was interrupted or the management service restarted.",
+        summaryEn: "Stage: unknown - Task process was interrupted or the management service restarted.",
+        detailTitleZh: "容器任务中断",
+        detailTitleEn: "Container Task Interrupted",
+        detailMessage: "Container task was interrupted during restart.",
+        tags: ["warning", "container"],
+        endpoint: "http://localhost:30003/v1",
+        healthEndpoint: "http://localhost:30003/health",
+        pipeline: "Stop container(成功) -> Start container(失败)",
+        finalLog: "Container restart task did not finish."
+      },
+      {
+        id: "taskDownloadNull",
+        categoryZh: "下载",
+        categoryEn: "Download",
+        modelName: "deepseek-r1-32b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "unknown",
+        summaryZh: "阶段: unknown - Command exited with code null. View task logs.",
+        summaryEn: "Stage: unknown - Command exited with code null. View task logs.",
+        detailTitleZh: "下载任务中断",
+        detailTitleEn: "Download Interrupted",
+        detailMessage: "Download process exited with code null.",
+        tags: ["warning", "download"],
+        endpoint: "--",
+        healthEndpoint: "--",
+        pipeline: "Download metadata(成功) -> Pull model file(失败)",
+        finalLog: "Command exited with code null."
+      },
+      {
+        id: "taskDownloadExit1",
+        categoryZh: "下载",
+        categoryEn: "Download",
+        modelName: "llama-3.3-70b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "unknown",
+        summaryZh: "阶段: unknown - Command exited with code 1. View task logs.",
+        summaryEn: "Stage: unknown - Command exited with code 1. View task logs.",
+        detailTitleZh: "下载失败",
+        detailTitleEn: "Download Failed",
+        detailMessage: "Command exited with code 1 during download.",
+        tags: ["error", "download", "exit_code_1"],
+        endpoint: "--",
+        healthEndpoint: "--",
+        pipeline: "Check repository(成功) -> Download shards(失败)",
+        finalLog: "Command exited with code 1."
+      },
+      {
+        id: "taskDownloadQuota",
+        categoryZh: "下载",
+        categoryEn: "Download",
+        modelName: "gemma-3-27b",
+        status: "failed",
+        statusZh: "失败",
+        statusEn: "Failed",
+        stage: "quota",
+        summaryZh: "阶段: quota - Storage quota exceeded while caching model files.",
+        summaryEn: "Stage: quota - Storage quota exceeded while caching model files.",
+        detailTitleZh: "磁盘配额超限",
+        detailTitleEn: "Storage Quota Exceeded",
+        detailMessage: "Storage quota exceeded while caching model files.",
+        tags: ["warning", "storage_quota"],
+        endpoint: "--",
+        healthEndpoint: "--",
+        pipeline: "Prepare cache(成功) -> Write shard file(失败)",
+        finalLog: "No space left on device."
+      },
+      {
+        id: "taskContainerSuccess",
+        categoryZh: "容器",
+        categoryEn: "Container",
+        modelName: "vllm-service",
+        status: "success",
+        statusZh: "成功",
+        statusEn: "Success",
+        stage: "done",
+        summaryZh: "容器启动完成，镜像: vllm/vllm-openai:latest",
+        summaryEn: "Container started successfully. Image: vllm/vllm-openai:latest",
+        detailTitleZh: "容器启动成功",
+        detailTitleEn: "Container Started",
+        detailMessage: "Container started successfully.",
+        tags: ["container", "healthy"],
+        endpoint: "http://localhost:31000/v1",
+        healthEndpoint: "http://localhost:31000/health",
+        pipeline: "Pull image(成功) -> Start container(成功) -> Health check(成功)",
+        finalLog: "Container is healthy and ready."
+      }
+    ];
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+    const taskList = document.getElementById("taskList");
+    const taskAlertTitle = document.getElementById("taskAlertTitle");
+    const taskAlertMessage = document.getElementById("taskAlertMessage");
+    const taskAlertTags = document.getElementById("taskAlertTags");
+    const taskDetailMeta = document.getElementById("taskDetailMeta");
+    const taskTimelineText = document.getElementById("taskTimelineText");
+    const refreshLogButton = document.getElementById("refreshLogButton");
+    const summaryRunningCount = document.getElementById("summaryRunningCount");
+    const summaryFailedCount = document.getElementById("summaryFailedCount");
+    const summaryDownloadCount = document.getElementById("summaryDownloadCount");
+    const summaryDeployCount = document.getElementById("summaryDeployCount");
+
+    /**
+     * 根据地址参数同步语言、主题和侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        pageState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        pageState.currentTheme = "light";
+      }
+
+      pageState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = pageState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+
+      document.documentElement.lang = pageState.currentLanguage === "zh" ? "zh-CN" : "en";
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", pageState.currentTheme === "light");
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = pageState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 计算顶部统计卡片数据。
+     */
+    function refreshSummaryCards() {
+      const runningCount = taskRegistry.filter((taskItem) => taskItem.status === "running").length;
+      const failedCount = taskRegistry.filter((taskItem) => taskItem.status === "failed").length;
+      const downloadCount = taskRegistry.filter((taskItem) => taskItem.categoryEn === "Download").length;
+      const deployCount = taskRegistry.filter((taskItem) => taskItem.categoryEn === "Deploy").length;
+
+      summaryRunningCount.textContent = String(runningCount);
+      summaryFailedCount.textContent = String(failedCount);
+      summaryDownloadCount.textContent = String(downloadCount);
+      summaryDeployCount.textContent = String(deployCount);
+    }
+
+    /**
+     * 将任务摘要整理为列表中更简洁的单行描述。
+     */
+    function getCompactTaskSummary(taskItem) {
+      const summaryValue = pageState.currentLanguage === "zh" ? taskItem.summaryZh : taskItem.summaryEn;
+
+      return summaryValue
+        .replace(/^阶段:\s*[^-]+-\s*/i, "")
+        .replace(/^Stage:\s*[^-]+-\s*/i, "");
+    }
+
+    /**
+     * 渲染左侧任务列表。
+     */
+    function renderTaskList() {
+      const languageKey = pageState.currentLanguage === "zh" ? "Zh" : "En";
+
+      taskList.innerHTML = "";
+
+      taskRegistry.forEach((taskItem) => {
+        const taskButton = document.createElement("button");
+        const statusClassName = taskItem.status === "success" ? "isSuccess" : "isFailed";
+        const categoryValue = taskItem[`category${languageKey}`];
+        const statusValue = taskItem[`status${languageKey}`];
+        const summaryValue = getCompactTaskSummary(taskItem);
+
+        taskButton.type = "button";
+        taskButton.className = taskItem.id === pageState.currentTaskId ? "taskListItem isActive" : "taskListItem";
+        taskButton.dataset.taskId = taskItem.id;
+        taskButton.innerHTML = `
+          <div class="taskListItemMain">
+            <div class="taskListTitleRow">
+              <strong>${taskItem.modelName}、${categoryValue}</strong>
+              <span class="taskStatusTag ${statusClassName}">${statusValue}</span>
+            </div>
+            <p>${summaryValue}</p>
+          </div>
+          <div class="taskListActions">
+            <span class="taskIconButton">◉</span>
+            <span class="taskIconButton">↺</span>
+          </div>
+        `;
+        taskButton.addEventListener("click", selectTask);
+        taskList.appendChild(taskButton);
+      });
+    }
+
+    /**
+     * 根据当前选中任务刷新右侧日志详情。
+     */
+    function refreshTaskDetail() {
+      const currentTask = taskRegistry.find((taskItem) => taskItem.id === pageState.currentTaskId);
+      const languageKey = pageState.currentLanguage === "zh" ? "Zh" : "En";
+
+      if (!currentTask) {
+        taskAlertTitle.textContent = "--";
+        taskAlertMessage.textContent = "--";
+        taskAlertTags.innerHTML = "";
+        taskDetailMeta.innerHTML = "";
+        taskTimelineText.textContent = "";
+        return;
+      }
+
+      taskAlertTitle.textContent = currentTask[`detailTitle${languageKey}`];
+      taskAlertMessage.textContent = currentTask.detailMessage;
+      taskAlertTags.innerHTML = "";
+
+      currentTask.tags.forEach((tagItem) => {
+        const tagNode = document.createElement("span");
+
+        tagNode.className = "taskAlertTag";
+        tagNode.textContent = tagItem;
+        taskAlertTags.appendChild(tagNode);
+      });
+
+      taskDetailMeta.innerHTML = `
+        <span>23:21</span>
+        <span>${currentTask.modelName}</span>
+        <span>${currentTask.endpoint}</span>
+        <span>${currentTask.healthEndpoint}</span>
+      `;
+      taskTimelineText.textContent = `${currentTask.pipeline}\n23:22 ${pageState.currentLanguage === "zh" ? currentTask.statusZh : currentTask.statusEn}\n${currentTask.finalLog}`;
+    }
+
+    /**
+     * 切换选中的任务项。
+     */
+    function selectTask(event) {
+      pageState.currentTaskId = event.currentTarget.dataset.taskId;
+      renderTaskList();
+      refreshTaskDetail();
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", pageState.currentLanguage);
+        linkUrl.searchParams.set("theme", pageState.currentTheme);
+        linkUrl.searchParams.set("sidebar", pageState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    /**
+     * 模拟刷新日志时重新渲染当前选中任务。
+     */
+    function refreshCurrentLog() {
+      refreshTaskDetail();
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    refreshSummaryCards();
+    renderTaskList();
+    refreshTaskDetail();
+    syncQueryLinks();
+
+    refreshLogButton.addEventListener("click", refreshCurrentLog);
+  </script>
+</body>
+</html>

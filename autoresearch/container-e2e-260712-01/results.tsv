@@ -1,0 +1,6 @@
+profile	compose	image	model	lan_endpoint	result	evidence
+audio-modelscope	deploy/compose/custom/docker-compose.audio-modelscope.yml	local/ai-stack-audio-modelscope:latest	fun-asr-nano-2512	http://192.168.31.55:33000/v1/audio/transcriptions	PASS	HTTP 200; text=开饭时间早上九点至下午五点。
+mineru	deploy/compose/custom/docker-compose.mineru.yml	local/ai-stack-mineru:latest	mineru2.5-pro-2605-1.2b	http://192.168.31.55:33040/v1/documents/parse	PASS	HTTP 200; parsed invoice number, quantity, total, and status to Markdown
+ocr-unlimited	deploy/compose/custom/docker-compose.ocr-unlimited.yml	local/ai-stack-unlimited-ocr:latest	unlimited-ocr	http://192.168.31.55:33030/v1/chat/completions	PASS	HTTP 200; returned all test text with detection coordinates
+vllm-embedding	deploy/compose/custom/docker-compose.vllm-embedding.yml	local/ai-stack-vllm-embedding:latest	qwen3-embedding-8b	http://192.168.31.55:33010/v1/embeddings	PASS	HTTP 200; 2 vectors x 4096 dimensions; cosine=0.898886
+vllm-reranker	deploy/compose/custom/docker-compose.vllm-reranker.yml	local/ai-stack-vllm-reranker:latest	qwen3-reranker-8b	http://192.168.31.55:33020/v1/rerank	PASS	HTTP 200; relevant=0.9947465; irrelevant<=0.0000023

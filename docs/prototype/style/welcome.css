@@ -1,0 +1,612 @@
+:root {
+  color-scheme: dark;
+  --sideNavWidth: 216px;
+  --bgPage: #101114;
+  --bgPrimary: #17181b;
+  --bgSecondary: #1e2024;
+  --bgPanel: #23252a;
+  --lineSoft: #31343b;
+  --lineStrong: #42464f;
+  --textPrimary: #f3f4f6;
+  --textSecondary: #b9bdc6;
+  --textMuted: #818793;
+  --accentPurpleSoft: rgba(130, 82, 241, 0.16);
+  --accentCyan: #36d1ff;
+  --dangerSoft: rgba(255, 116, 116, 0.14);
+  --dangerText: #ff8d8d;
+  --panelShadow: 0 16px 32px rgba(0, 0, 0, 0.22);
+  --radiusLarge: 14px;
+}
+
+body.themeLight {
+  color-scheme: light;
+  --bgPage: #edf1f7;
+  --bgPrimary: #ffffff;
+  --bgSecondary: #f7f9fc;
+  --bgPanel: #ffffff;
+  --lineSoft: #dfe5ef;
+  --lineStrong: #ccd5e2;
+  --textPrimary: #1a2433;
+  --textSecondary: #5f6c82;
+  --textMuted: #8a96aa;
+  --accentPurpleSoft: rgba(130, 82, 241, 0.1);
+  --dangerSoft: rgba(255, 116, 116, 0.1);
+  --dangerText: #e45858;
+  --panelShadow: 0 14px 28px rgba(16, 28, 56, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bgPage);
+  color: var(--textPrimary);
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.pageShell {
+  width: 100%;
+  height: 100%;
+}
+
+.mainLayout {
+  display: grid;
+  grid-template-columns: var(--sideNavWidth) minmax(0, 1fr) minmax(300px, 360px);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.mainLayout.isRightPanelCollapsed {
+  grid-template-columns: var(--sideNavWidth) minmax(0, 1fr);
+}
+
+.mainLayout.isRightPanelCollapsed .detailPanel {
+  display: none;
+}
+
+.sideNav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--bgSecondary), var(--bgPanel));
+  border-right: 1px solid var(--lineSoft);
+}
+
+.sideNavHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sideNavMiniLogo {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(62, 197, 255, 0.28), rgba(130, 82, 241, 0.42));
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sideNavHeaderText {
+  display: flex;
+  flex-direction: column;
+}
+
+.sideNavHeaderText strong {
+  font-size: 13px;
+}
+
+.sideNavHeaderText span {
+  font-size: 10px;
+  color: var(--textMuted);
+  letter-spacing: 0.08em;
+}
+
+.sideNavMenu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 10px;
+  min-height: 0;
+}
+
+.sideNavItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--textSecondary);
+  text-decoration: none;
+  background: transparent;
+}
+
+.sideNavItem:hover,
+.sideNavItem.isActive {
+  color: var(--textPrimary);
+  background: var(--accentPurpleSoft);
+}
+
+.sideNavIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: block;
+  color: currentColor;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
+.sideNavIcon.dashboard {
+  -webkit-mask-image: url("../assets/icons/dashboard.svg");
+  mask-image: url("../assets/icons/dashboard.svg");
+}
+
+.sideNavIcon.modelTest {
+  -webkit-mask-image: url("../assets/icons/model-test.svg");
+  mask-image: url("../assets/icons/model-test.svg");
+}
+
+.sideNavIcon.modelPublish {
+  -webkit-mask-image: url("../assets/icons/model-publish.svg");
+  mask-image: url("../assets/icons/model-publish.svg");
+}
+
+.sideNavIcon.modelLibrary {
+  -webkit-mask-image: url("../assets/icons/model-library.svg");
+  mask-image: url("../assets/icons/model-library.svg");
+}
+
+.sideNavIcon.runtime {
+  -webkit-mask-image: url("../assets/icons/runtime.svg");
+  mask-image: url("../assets/icons/runtime.svg");
+}
+
+.sideNavIcon.systemStatus {
+  -webkit-mask-image: url("../assets/icons/system-status.svg");
+  mask-image: url("../assets/icons/system-status.svg");
+}
+
+.sideNavIcon.tasks {
+  -webkit-mask-image: url("../assets/icons/tasks.svg");
+  mask-image: url("../assets/icons/tasks.svg");
+}
+
+.sideNavIcon.settings {
+  -webkit-mask-image: url("../assets/icons/settings.svg");
+  mask-image: url("../assets/icons/settings.svg");
+}
+
+.sideNavLabel {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sideNavFooter {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 10px 16px;
+  color: var(--textMuted);
+  font-size: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sideNavFooterItem {
+  margin-bottom: 8px;
+}
+
+.sideNav.isCollapsed .sideNavHeader {
+  justify-content: center;
+  padding: 0 10px;
+}
+
+.sideNav.isCollapsed .sideNavHeaderText,
+.sideNav.isCollapsed .sideNavLabel,
+.sideNav.isCollapsed .sideNavFooter span {
+  display: none;
+}
+
+.sideNav.isCollapsed .sideNavItem,
+.sideNav.isCollapsed .sideNavFooterItem {
+  justify-content: center;
+  padding: 0;
+}
+
+.sideNav.isCollapsed .sideNavFooter {
+  padding: 12px 10px 16px;
+}
+
+.contentPanel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top center, rgba(130, 82, 241, 0.07), transparent 32%),
+    var(--bgPrimary);
+}
+
+.homeBanner,
+.modelPanel,
+.detailPanel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--lineSoft);
+  border-radius: var(--radiusLarge);
+  box-shadow: var(--panelShadow);
+}
+
+.homeBanner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 120px;
+  padding: 18px 22px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(53, 85, 230, 0.08), rgba(62, 209, 255, 0.02)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.homeBanner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 75% 35%, rgba(62, 209, 255, 0.14), transparent 22%),
+    radial-gradient(circle at 85% 70%, rgba(130, 82, 241, 0.14), transparent 28%);
+}
+
+.homeBannerInner,
+.homeBannerDecor {
+  position: relative;
+  z-index: 1;
+}
+
+.homeBannerEyebrow {
+  display: inline-block;
+  color: var(--accentCyan);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.homeBanner h1 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.homeBanner p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 12px;
+}
+
+.homeBannerDecor {
+  position: absolute;
+  right: 24px;
+  top: 18px;
+  width: 180px;
+  height: 76px;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    radial-gradient(circle at 72% 36%, rgba(62, 209, 255, 0.12), transparent 28%);
+}
+
+.overviewCards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 14px;
+  flex: none;
+}
+
+.statCard {
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--lineSoft);
+  border-radius: var(--radiusLarge);
+  box-shadow: var(--panelShadow);
+}
+
+.statCard span {
+  display: block;
+  color: var(--textMuted);
+  font-size: 11px;
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 26px;
+}
+
+.modelPanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resourcePanel {
+  flex: none;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--lineSoft);
+  border-radius: var(--radiusLarge);
+  box-shadow: var(--panelShadow);
+}
+
+.resourceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 14px 12px 12px;
+}
+
+.resourceCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+}
+
+.gaugeRing {
+  --gaugeValue: 0.02turn;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background:
+    conic-gradient(#2e7bf2 var(--gaugeValue), rgba(255, 255, 255, 0.1) 0),
+    radial-gradient(circle at center, transparent 61%, #000000 62%);
+}
+
+.gaugeRing::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--bgPrimary);
+}
+
+.gaugeContent {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.gaugeContent strong {
+  position: relative;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.gaugeContent span {
+  position: relative;
+  z-index: 1;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gaugeCpu {
+  --gaugeValue: 0.02turn;
+}
+
+.gaugeMemory {
+  --gaugeValue: 0.04turn;
+}
+
+.gaugeStorage {
+  --gaugeValue: 0.22turn;
+}
+
+.gaugeGpu {
+  --gaugeValue: 0.16turn;
+}
+
+.resourceMeta {
+  margin-top: 6px;
+  text-align: center;
+  color: var(--textMuted);
+  font-size: 12px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--lineSoft);
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.modelTable {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.modelTableHead {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 14px 18px;
+  color: var(--textSecondary);
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--lineSoft);
+}
+
+.modelTableEmpty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  color: var(--textMuted);
+  font-size: 13px;
+}
+
+.emptyBoxIcon {
+  position: relative;
+  width: 42px;
+  height: 30px;
+  border: 1.5px solid var(--lineStrong);
+  border-radius: 6px;
+}
+
+.emptyBoxIcon::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -8px;
+  height: 12px;
+  border: 1.5px solid var(--lineStrong);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+
+.detailPanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 18px 18px 18px 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--bgPanel), var(--bgSecondary));
+}
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.taskItem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.taskItemMain strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.taskItemTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.taskItemTitle strong {
+  margin-bottom: 0;
+}
+
+.taskTypeTag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.taskTypeTag.isDownload {
+  color: #7dc0ff;
+  background: rgba(65, 138, 255, 0.16);
+  border: 1px solid rgba(65, 138, 255, 0.24);
+}
+
+.taskTypeTag.isLoad {
+  color: #8fe29d;
+  background: rgba(66, 178, 92, 0.16);
+  border: 1px solid rgba(66, 178, 92, 0.24);
+}
+
+.taskItemMain p {
+  margin: 0;
+  color: var(--textMuted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.taskTag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--dangerText);
+  background: var(--dangerSoft);
+  border: 1px solid rgba(255, 120, 120, 0.18);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.modelTable::-webkit-scrollbar,
+.taskList::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modelTable::-webkit-scrollbar-thumb,
+.taskList::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body.themeLight .gaugeRing {
+  background:
+    conic-gradient(#2e7bf2 var(--gaugeValue), rgba(15, 30, 56, 0.12) 0),
+    radial-gradient(circle at center, transparent 61%, #ffffff 62%);
+}

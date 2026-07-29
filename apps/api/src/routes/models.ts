@@ -7,12 +7,13 @@ import {
 import { listActiveDeployments, listModelFiles, listTasks } from "../store.js";
 import { createDownloadPlan } from "../downloadManager.js";
 import { runCommand } from "../utils.js";
-import type { ServiceType } from "../types.js";
+import type { ActiveDeploymentRecord, ModelRecord, ServiceType } from "../types.js";
 
 export function register(
   route: (method: string, path: string, handler: (...args: any[]) => Promise<void>) => void,
   modelsRoot: string,
-  workspaceRoot: string
+  workspaceRoot: string,
+  dh?: { liveActiveDeployments: () => Promise<ActiveDeploymentRecord[]> }
 ) {
   route("GET", "/models/progress", async (_req: any, res: any) => {
     const models = await listModels(modelsRoot);
@@ -29,7 +30,7 @@ export function register(
   });
 
   route("GET", "/models", async (_req: any, res: any) => {
-    const models = await listModels(modelsRoot);
+    const models = await modelsWithActiveDeployments(modelsRoot, dh);
     sendJson(res, 200, { models_dir: modelsRoot, model_count: models.length, models });
   });
 
@@ -40,7 +41,7 @@ export function register(
   });
 
   route("GET", "/models/:model_id", async (_req: any, res: any, params: any) => {
-    const model = await getModel(modelsRoot, params.model_id);
+    const model = (await modelsWithActiveDeployments(modelsRoot, dh)).find((item) => item.id === params.model_id);
     if (!model) return sendJson(res, 404, { detail: `Unknown model: ${params.model_id}` });
     sendJson(res, 200, model);
   });
@@ -105,5 +106,32 @@ export function register(
     if (!model) return sendJson(res, 404, { detail: `Unknown model: ${body.model_id}` });
     const compat = compatibilityFor(model, body.service_type);
     sendJson(res, 200, { status: compat.status, model_format: model.local.format, service_type: body.service_type, reason: compat.reason, warnings: compat.status === "compatible" ? [] : [compat.reason] });
+  });
+}
+
+async function modelsWithActiveDeployments(
+  modelsRoot: string,
+  dh?: { liveActiveDeployments: () => Promise<ActiveDeploymentRecord[]> }
+): Promise<ModelRecord[]> {
+  const models = await listModels(modelsRoot);
+  const active = dh ? await dh.liveActiveDeployments() : listActiveDeployments();
+  return applyActiveDeployments(models, active);
+}
+
+function applyActiveDeployments(models: ModelRecord[], active: ActiveDeploymentRecord[]): ModelRecord[] {
+  const running = active.filter((deployment) => deployment.status === "running");
+  return models.map((model) => {
+    const deployment = running.find((item) => item.model_id === model.id || item.openai_model === model.id);
+    if (!deployment) return model;
+    return {
+      ...model,
+      status: { ...model.status, deploy: "running", health: "healthy" },
+      serving: {
+        service_type: deployment.service_type,
+        public_base_url: deployment.base_url,
+        worker_endpoint: deployment.worker_endpoint,
+        openai_model: deployment.openai_model
+      }
+    };
   });
 }

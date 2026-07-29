@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage } from "node:http";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 import { initDb } from "./db.js";
@@ -10,6 +11,7 @@ import { createWsHandler } from "./wsHandler.js";
 import { proxyWebSocket } from "./httpProxy.js";
 import { createRouter, sendJson, getPath } from "./serverUtils.js";
 import { requiresElectronPrivilege, isElectronRequest } from "./permissions.js";
+import { resumeInterruptedDownloads } from "./downloadManager.js";
 
 /* ── route modules ─────────────────────────────── */
 import { register as systemRoutes } from "./routes/system.js";
@@ -24,13 +26,14 @@ import { register as legacyRoutes } from "./routes/legacy.js";
 
 /* ── constants ─────────────────────────────────── */
 const port = Number(process.env.PORT ?? "8000");
-const workspaceRoot = process.env.AI_STACK_BASE ?? process.cwd();
+const inferredWorkspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const workspaceRoot = process.env.AI_STACK_BASE ?? inferredWorkspaceRoot;
 const modelsRoot = process.env.MODELS_ROOT ?? join(workspaceRoot, "models");
 const stateRoot = process.env.STATE_ROOT ?? join(workspaceRoot, "state");
 const uploadsRoot = process.env.UPLOADS_ROOT ?? join(stateRoot, "uploads");
 const logsRoot = process.env.LOGS_ROOT ?? join(workspaceRoot, "logs");
-const audioServiceUrl = process.env.AUDIO_SERVICE_URL ?? "http://127.0.0.1:32000";
-const audioServiceWsUrl = process.env.AUDIO_SERVICE_WS_URL ?? "ws://127.0.0.1:32000/ws/realtime";
+const audioServiceUrl = process.env.AUDIO_SERVICE_URL ?? "http://127.0.0.1:8011";
+const audioServiceWsUrl = process.env.AUDIO_SERVICE_WS_URL ?? "ws://127.0.0.1:8011/ws/realtime";
 
 /* ── composed modules ──────────────────────────── */
 const dh = createDeploymentHelpers({ modelsRoot, audioServiceUrl });
@@ -41,8 +44,8 @@ const { route, match } = createRouter();
 
 /* ── register all route groups ─────────────────── */
 systemRoutes(route);
-settingsRoutes(route);
-modelRoutes(route, modelsRoot, workspaceRoot);
+settingsRoutes(route, workspaceRoot);
+modelRoutes(route, modelsRoot, workspaceRoot, dh);
 downloadRoutes(route, workspaceRoot, logsRoot);
 taskRoutes(route, workspaceRoot, logsRoot);
 containerRoutes(route, workspaceRoot, logsRoot, stateRoot);
@@ -81,6 +84,15 @@ wss.on("connection", (ws, req) => { wsHandler.handleConnection(ws, req); });
 initDb();
 const migrationResult = migrateFromJson(stateRoot);
 if (migrationResult.migrated) console.log(`DB migration: ${migrationResult.detail}`);
+
+void resumeInterruptedDownloads(workspaceRoot, logsRoot)
+  .then((result) => {
+    const touched = result.resumed.length + result.completed.length + result.canceled.length + result.failed.length;
+    if (touched > 0) console.log(`Download recovery: ${JSON.stringify(result)}`);
+  })
+  .catch((error) => {
+    console.error("Download recovery failed:", error instanceof Error ? error.message : error);
+  });
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`AI Stack TypeScript API listening on 0.0.0.0:${port}`);

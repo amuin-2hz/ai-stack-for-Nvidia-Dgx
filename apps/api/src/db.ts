@@ -95,7 +95,7 @@ export function initDb(): void {
   // Seed default containers
   const defaults = [
     { key: "vllm", port: 30000, image: "vllm/vllm-openai:latest" },
-    { key: "trtllm", port: 31000, image: "nvcr.io/nvidia/tritonserver:25.04-trtllm-python-py3" },
+    { key: "trtllm", port: 31000, image: "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc6" },
     { key: "pytorch", port: 32000, image: "nvcr.io/nvidia/pytorch:25.04-py3" },
   ];
   const insert = db.prepare(
@@ -105,6 +105,13 @@ export function initDb(): void {
   for (const d of defaults) {
     insert.run({ key: d.key, port: d.port, image: d.image });
   }
+
+  db.prepare(
+    "UPDATE container_configs SET image = ?, updated_at = datetime('now') WHERE key = 'trtllm' AND image = ?"
+  ).run(
+    "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc6",
+    "nvcr.io/nvidia/tritonserver:25.04-trtllm-python-py3"
+  );
 }
 
 export function closeDb(): void {

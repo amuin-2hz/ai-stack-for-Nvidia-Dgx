@@ -7,10 +7,10 @@ export function register(
   logsRoot: string
 ) {
   route("POST", "/downloads", async (req: any, res: any) => {
-    const body = await readBody<{ url?: string; alias?: string; provider?: string }>(req);
+    const body = await readBody<{ url?: string; alias?: string; provider?: string; expected_runtime?: string }>(req);
     if (!body.url) return sendJson(res, 400, { detail: "url is required" });
     try {
-      sendJson(res, 202, await startDownload({ url: body.url, alias: body.alias, provider: body.provider }, workspaceRoot, logsRoot));
+      sendJson(res, 202, await startDownload({ url: body.url, alias: body.alias, provider: body.provider, expected_runtime: body.expected_runtime }, workspaceRoot, logsRoot));
     } catch (error) {
       if (error instanceof DownloadConflictError) {
         return sendJson(res, error.statusCode, { detail: error.message, task: error.task });

@@ -22,6 +22,9 @@ export interface ContainerRecord {
   image_pulled: boolean;
   test_status: "untested" | "running" | "passed" | "failed";
   software_versions: Record<string, string>;
+  category: "system" | "custom" | "model-instance";
+  note: string;
+  suitable_models: string[];
 }
 
 export interface CustomContainerRequest {
@@ -29,9 +32,13 @@ export interface CustomContainerRequest {
   image?: string;
   components?: string[];
   compose_yaml?: string;
+  dockerfile_content?: string;
+  dockerfile_path?: string;
   management_mode?: ContainerManagementMode;
   restart_policy?: ContainerRestartPolicy;
   auto_restart?: boolean;
+  note?: string;
+  suitable_models?: string[];
 }
 
 /* ── constants ─────────────────────────────────── */

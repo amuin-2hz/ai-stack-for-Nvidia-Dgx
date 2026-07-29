@@ -94,12 +94,15 @@ download_ms_snapshot() {
   marker_file="$(download_marker_path "$target_dir")"
 
   if [ -f "$marker_file" ]; then
+    rm -rf "$target_dir/.temp"
     echo "Skipping $target_dir, already downloaded."
     return
   fi
 
   rm -f "$marker_file"
+  rm -rf "$target_dir/.temp"
   "$MODELSCOPE_BIN" download --model "$repo_id" --local_dir "$target_dir"
+  rm -rf "$target_dir/.temp"
   touch "$marker_file"
 }
 

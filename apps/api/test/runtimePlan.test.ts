@@ -18,8 +18,19 @@ test("runtimeCommandFor renders vLLM deployment command and configured env", () 
   assert.equal(command.env.VLLM_PUBLIC_PORT, "30123");
   assert.equal(command.env.VLLM_MAX_MODEL_LEN, "8192");
   assert.equal(command.env.VLLM_GPU_MEMORY_UTILIZATION, "45");
-  assert.match(command.args.join(" "), /docker compose/);
-  assert.match(command.args.join(" "), /pull vllm-worker/);
+  assert.equal(command.env.VLLM_CONTAINER_NAME, "vllm_qwen_local_qwen");
+  assert.match(command.args.join(" "), /docker run -d/);
+  assert.match(command.args.join(" "), /--name "\$VLLM_CONTAINER_NAME"/);
+  assert.match(command.args.join(" "), /"\$VLLM_IMAGE" "\/models\/\$MODEL_ALIAS"/);
+  assert.doesNotMatch(command.args.join(" "), /--swap-space/);
+test("runtimeCommandFor gives OmniCoder enough engine budget without changing other models", () => {
+  const command = runtimeCommandFor("vllm", "omnicoder-9b", "omnicoder-9b", { gpu_memory_utilization: 0.2, max_num_seqs: 16 });
+  assert.equal(command.env.VLLM_GPU_MEMORY_UTILIZATION, "0.3");
+  assert.equal(command.env.VLLM_MAX_NUM_SEQS, "4");
+});
+
+
+  assert.equal(command.env.VLLM_SWAP_SPACE, undefined);
   assert.match(command.args.join(" "), /__AMUIN_STAGE__:pull:running/);
   assert.match(command.args.join(" "), /__AMUIN_STAGE__:start:running/);
 });
@@ -53,9 +64,10 @@ test("runtime plan exposes prepare, pull, start, and health stages", async () =>
     warnings: []
   };
   const plan = createRuntimePlan(deployment, model, "vllm", "demo", {}, "/workspace");
-  assert.deepEqual(plan.stages.map((stage) => stage.id), ["prepare", "pull", "start", "health"]);
+  assert.deepEqual(plan.stages.map((stage) => stage.id), ["prepare", "pull", "start", "load", "health"]);
   assert.equal(plan.stages[1].label, "Pull image");
   assert.equal(plan.stages[2].label, "Start runtime");
+  assert.equal(plan.stages[3].label, "Load model");
 });
 
 test("runtimeCommandFor prefers configured runtime image", () => {

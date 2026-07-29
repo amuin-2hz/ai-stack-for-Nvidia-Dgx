@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>modelLibrary</title>
+  <link rel="stylesheet" href="../style/modelLibrary.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./tasks.html">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </a>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <section class="libraryWorkspace">
+          <aside class="librarySidebar">
+            <div class="librarySidebarHeader">
+              <span class="librarySidebarEyebrow">AMUIN AI STACK</span>
+              <h1 data-i18n data-zh="我的模型" data-en="My Models">我的模型</h1>
+              <p data-i18n data-zh="将本地模型按用途归类查看，快速切换聊天、发布与加载场景。" data-en="Browse local models by category and quickly switch between chat, publish, and load scenarios.">将本地模型按用途归类查看，快速切换聊天、发布与加载场景。</p>
+            </div>
+
+            <div class="libraryNavGroup" id="libraryCategoryList" aria-label="模型分类"></div>
+
+            <div class="librarySidebarFooter">
+              <span data-i18n data-zh="已同步本地模型目录" data-en="Local model directory synced">已同步本地模型目录</span>
+              <strong id="libraryTotalCount">6</strong>
+            </div>
+          </aside>
+
+          <section class="libraryMainPanel">
+            <header class="libraryToolbar">
+              <div class="libraryToolbarTitleGroup">
+                <strong data-i18n data-zh="模型清单" data-en="Model List">模型清单</strong>
+                <span id="libraryToolbarMeta" data-i18n data-zh="共 6 个模型" data-en="6 models in total">共 6 个模型</span>
+              </div>
+
+              <label class="librarySearchField">
+                <span class="librarySearchIcon">⌕</span>
+                <input id="librarySearchInput" type="text" placeholder="筛选模型... (Ctrl + F)" aria-label="筛选模型">
+              </label>
+            </header>
+
+            <section class="libraryTablePanel">
+              <div class="libraryTableHeader">
+                <span data-i18n data-zh="架构" data-en="Architecture">架构</span>
+                <span data-i18n data-zh="参数量" data-en="Parameters">参数量</span>
+                <span data-i18n data-zh="发布者" data-en="Publisher">发布者</span>
+                <span>LLM</span>
+                <span data-i18n data-zh="量化规格" data-en="Quantization">量化规格</span>
+                <span data-i18n data-zh="尺寸" data-en="Size">尺寸</span>
+                <span data-i18n data-zh="修改日期" data-en="Modified">修改日期</span>
+                <span data-i18n data-zh="操作" data-en="Actions">操作</span>
+              </div>
+
+              <div class="libraryTableBody" id="libraryTableBody"></div>
+
+              <footer class="libraryTableFooter">
+                <span id="libraryDiskSummary" data-i18n data-zh="您有 6 个本地模型，占用了 24.78 GB 的磁盘空间。" data-en="You have 6 local models, using 24.78 GB of disk space.">您有 6 个本地模型，占用了 24.78 GB 的磁盘空间。</span>
+                <span class="libraryPathBadge">D:\LM_studio_models</span>
+              </footer>
+            </section>
+          </section>
+
+          <aside class="libraryDetailPanel">
+            <div class="detailHeroCard">
+              <div class="detailHeroTop">
+                <div>
+                  <h2 id="detailTitle">Qwen3.5-9B-YOYO-Instruct</h2>
+                  <span class="detailTitleTag" id="detailVersionTag">Customized</span>
+                </div>
+                <span class="detailStatusDot"></span>
+              </div>
+
+              <div class="detailActionRow">
+                <button class="detailPrimaryButton" type="button" data-i18n data-zh="在新聊天中使用" data-en="Use in New Chat">在新聊天中使用</button>
+                <button class="detailGhostButton" type="button" data-i18n data-zh="加载模型" data-en="Load Model">加载模型</button>
+              </div>
+
+              <div class="detailQuickActions">
+                <button class="detailChipButton isActive" type="button">Info</button>
+                <button class="detailChipButton" type="button">Load</button>
+                <button class="detailChipButton" type="button">Inference</button>
+              </div>
+            </div>
+
+            <section class="detailCard">
+              <div class="detailCardTitle" data-i18n data-zh="模型信息" data-en="Model Information">模型信息</div>
+              <div class="detailInfoList">
+                <div class="detailInfoRow">
+                  <span>Model</span>
+                  <strong id="detailModelRepo">mrademacher/Qwen3.5-...</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>File</span>
+                  <strong id="detailModelFile">Qwen3.5-9B-YOYO-Instr...</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Format</span>
+                  <strong id="detailModelFormat">GGUF</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Quantization</span>
+                  <strong id="detailModelQuantization">Q4_K_S</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Arch</span>
+                  <strong id="detailModelArch">qwen35</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Capabilities</span>
+                  <strong id="detailModelCapabilities">Tool use</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Domain</span>
+                  <strong id="detailModelDomain">llm</strong>
+                </div>
+                <div class="detailInfoRow">
+                  <span>Size on disk</span>
+                  <strong id="detailModelSize">5.35 GB</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="detailCard">
+              <div class="detailCardTitle" data-i18n data-zh="域控制" data-en="Domain Control">域控制</div>
+              <div class="detailDomainList">
+                <div class="detailDomainRow">
+                  <span data-i18n data-zh="当前域" data-en="Current Domain">当前域</span>
+                  <strong id="detailCurrentDomain">11m</strong>
+                </div>
+                <div class="detailDomainRow">
+                  <span data-i18n data-zh="推荐运行时" data-en="Recommended Runtime">推荐运行时</span>
+                  <strong id="detailRecommendedRuntime">PyTorch</strong>
+                </div>
+                <div class="detailDomainRow">
+                  <span data-i18n data-zh="默认入口" data-en="Default Entry">默认入口</span>
+                  <strong id="detailDefaultEntry">聊天 / 发布</strong>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const frameState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentCategoryId: "all",
+      currentModelId: "qwen35Yoyo"
+    };
+
+    const modelRegistry = [
+      {
+        id: "qwen3Asr",
+        categoryId: "llm",
+        architecture: "qwen3vl",
+        parameterScale: "752M",
+        publisher: "ggml-org",
+        modelName: "qwen3-asr-0.6b",
+        versionTag: "Standard",
+        quantization: "Q8_0",
+        size: "1.2 GB",
+        modifiedAt: "24 days ago",
+        detailTitle: "Qwen3 ASR 0.6B",
+        repo: "ggml-org/Qwen3-ASR-0.6B",
+        file: "qwen3-asr-0.6b-q8_0.gguf",
+        format: "GGUF",
+        arch: "qwen3vl",
+        capabilities: "Speech",
+        domain: "audio",
+        detailDomain: "asr",
+        recommendedRuntime: "PyTorch",
+        defaultEntry: "测试 / 发布"
+      },
+      {
+        id: "qwen3Vl8b",
+        categoryId: "llm",
+        architecture: "qwen3vl",
+        parameterScale: "8B",
+        publisher: "lmstudio-community",
+        modelName: "qwen/qwen3-vl-8b",
+        versionTag: "Vision",
+        quantization: "Q4_K_M",
+        size: "6.2 GB",
+        modifiedAt: "62 days ago",
+        detailTitle: "Qwen3 VL 8B",
+        repo: "qwen/Qwen3-VL-8B",
+        file: "qwen3-vl-8b-q4_k_m.gguf",
+        format: "GGUF",
+        arch: "qwen3vl",
+        capabilities: "Vision",
+        domain: "vision",
+        detailDomain: "vlm",
+        recommendedRuntime: "vLLM",
+        defaultEntry: "聊天 / 推理"
+      },
+      {
+        id: "omnicoder9b",
+        categoryId: "llm",
+        architecture: "qwen35",
+        parameterScale: "9.0B",
+        publisher: "Tesslate",
+        modelName: "omnicoder-9b",
+        versionTag: "Coding",
+        quantization: "Q4_K_S",
+        size: "5.4 GB",
+        modifiedAt: "62 days ago",
+        detailTitle: "Omnicoder 9B",
+        repo: "Tesslate/Omnicoder-9B",
+        file: "omnicoder-9b-q4_k_s.gguf",
+        format: "GGUF",
+        arch: "qwen35",
+        capabilities: "Coding",
+        domain: "code",
+        detailDomain: "coder",
+        recommendedRuntime: "TensorRT-LLM",
+        defaultEntry: "测试 / 发布"
+      },
+      {
+        id: "qwen35Instruct",
+        categoryId: "llm",
+        architecture: "qwen35",
+        parameterScale: "9B",
+        publisher: "lmstudio-community",
+        modelName: "qwen/qwen3.5-9b",
+        versionTag: "Tool use",
+        quantization: "Q4_K_M",
+        size: "6.5 GB",
+        modifiedAt: "62 days ago",
+        detailTitle: "Qwen3.5 9B",
+        repo: "qwen/Qwen3.5-9B",
+        file: "qwen3.5-9b-q4_k_m.gguf",
+        format: "GGUF",
+        arch: "qwen35",
+        capabilities: "Tool use",
+        domain: "llm",
+        detailDomain: "11m",
+        recommendedRuntime: "PyTorch",
+        defaultEntry: "聊天 / 发布"
+      },
+      {
+        id: "qwen35Yoyo",
+        categoryId: "llm",
+        architecture: "qwen35",
+        parameterScale: "9B",
+        publisher: "mrademacher",
+        modelName: "qwen3.5-9b-yoyo-instruct",
+        versionTag: "Customized",
+        quantization: "Q4_K_S",
+        size: "5.4 GB",
+        modifiedAt: "80 days ago",
+        detailTitle: "Qwen3.5-9B-YOYO-Instruct",
+        repo: "mrademacher/Qwen3.5-9B-YOYO-Instruct",
+        file: "Qwen3.5-9B-YOYO-Instruct-Q4_K_S.gguf",
+        format: "GGUF",
+        arch: "qwen35",
+        capabilities: "Tool use",
+        domain: "llm",
+        detailDomain: "11m",
+        recommendedRuntime: "PyTorch",
+        defaultEntry: "聊天 / 发布"
+      },
+      {
+        id: "nomicEmbed",
+        categoryId: "embedding",
+        architecture: "nomic",
+        parameterScale: "137M",
+        publisher: "nomic-ai",
+        modelName: "nomic-embed-text-v1.5",
+        versionTag: "Embedding",
+        quantization: "Q4_K_M",
+        size: "80.2 MB",
+        modifiedAt: "15 days ago",
+        detailTitle: "Nomic Embed Text v1.5",
+        repo: "nomic-ai/nomic-embed-text-v1.5",
+        file: "nomic-embed-text-v1.5-q4_k_m.gguf",
+        format: "GGUF",
+        arch: "nomic-bert",
+        capabilities: "Embedding",
+        domain: "text",
+        detailDomain: "embedding",
+        recommendedRuntime: "PyTorch",
+        defaultEntry: "检索 / 向量化"
+      }
+    ];
+
+    const categoryRegistry = [
+      {
+        id: "all",
+        labelZh: "查看全部",
+        labelEn: "View All"
+      },
+      {
+        id: "llm",
+        labelZh: "LLMs",
+        labelEn: "LLMs"
+      },
+      {
+        id: "embedding",
+        labelZh: "文本向量",
+        labelEn: "Text Embedding"
+      }
+    ];
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+    const libraryCategoryList = document.getElementById("libraryCategoryList");
+    const librarySearchInput = document.getElementById("librarySearchInput");
+    const libraryTableBody = document.getElementById("libraryTableBody");
+    const libraryToolbarMeta = document.getElementById("libraryToolbarMeta");
+    const libraryDiskSummary = document.getElementById("libraryDiskSummary");
+    const libraryTotalCount = document.getElementById("libraryTotalCount");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailVersionTag = document.getElementById("detailVersionTag");
+    const detailModelRepo = document.getElementById("detailModelRepo");
+    const detailModelFile = document.getElementById("detailModelFile");
+    const detailModelFormat = document.getElementById("detailModelFormat");
+    const detailModelQuantization = document.getElementById("detailModelQuantization");
+    const detailModelArch = document.getElementById("detailModelArch");
+    const detailModelCapabilities = document.getElementById("detailModelCapabilities");
+    const detailModelDomain = document.getElementById("detailModelDomain");
+    const detailModelSize = document.getElementById("detailModelSize");
+    const detailCurrentDomain = document.getElementById("detailCurrentDomain");
+    const detailRecommendedRuntime = document.getElementById("detailRecommendedRuntime");
+    const detailDefaultEntry = document.getElementById("detailDefaultEntry");
+
+    /**
+     * 从地址参数中提取当前页面语言、主题与侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        frameState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        frameState.currentTheme = "light";
+      }
+
+      frameState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = frameState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+
+      document.documentElement.lang = frameState.currentLanguage === "zh" ? "zh-CN" : "en";
+      librarySearchInput.placeholder = frameState.currentLanguage === "zh" ? "筛选模型... (Ctrl + F)" : "Filter models... (Ctrl + F)";
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", frameState.currentTheme === "light");
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = frameState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 获取经过分类和搜索过滤后的模型列表。
+     */
+    function getFilteredModelList() {
+      const keywordValue = librarySearchInput.value.trim().toLowerCase();
+
+      return modelRegistry.filter((modelItem) => {
+        const matchedCategory = frameState.currentCategoryId === "all" || modelItem.categoryId === frameState.currentCategoryId;
+        const matchedKeyword = keywordValue === ""
+          || modelItem.detailTitle.toLowerCase().includes(keywordValue)
+          || modelItem.modelName.toLowerCase().includes(keywordValue)
+          || modelItem.publisher.toLowerCase().includes(keywordValue)
+          || modelItem.capabilities.toLowerCase().includes(keywordValue);
+
+        return matchedCategory && matchedKeyword;
+      });
+    }
+
+    /**
+     * 渲染左侧分类导航，并展示当前分类数量。
+     */
+    function renderCategoryList() {
+      libraryCategoryList.innerHTML = "";
+      libraryTotalCount.textContent = String(modelRegistry.length);
+
+      categoryRegistry.forEach((categoryItem) => {
+        const countValue = categoryItem.id === "all"
+          ? modelRegistry.length
+          : modelRegistry.filter((modelItem) => modelItem.categoryId === categoryItem.id).length;
+        const categoryButton = document.createElement("button");
+        const categoryLabel = frameState.currentLanguage === "zh" ? categoryItem.labelZh : categoryItem.labelEn;
+
+        categoryButton.type = "button";
+        categoryButton.className = categoryItem.id === frameState.currentCategoryId ? "libraryCategoryButton isActive" : "libraryCategoryButton";
+        categoryButton.dataset.categoryId = categoryItem.id;
+        categoryButton.innerHTML = "<span>" + categoryLabel + "</span><strong>" + countValue + "</strong>";
+        categoryButton.addEventListener("click", switchCategory);
+        libraryCategoryList.appendChild(categoryButton);
+      });
+    }
+
+    /**
+     * 渲染中间模型表格，并保持已选中项可见。
+     */
+    function renderModelTable() {
+      const filteredModelList = getFilteredModelList();
+
+      if (!filteredModelList.some((modelItem) => modelItem.id === frameState.currentModelId) && filteredModelList.length > 0) {
+        frameState.currentModelId = filteredModelList[filteredModelList.length - 1].id;
+      }
+
+      libraryTableBody.innerHTML = "";
+
+      filteredModelList.forEach((modelItem) => {
+        const modelRow = document.createElement("button");
+        const isSelected = modelItem.id === frameState.currentModelId;
+
+        modelRow.type = "button";
+        modelRow.className = isSelected ? "libraryTableRow isSelected" : "libraryTableRow";
+        modelRow.dataset.modelId = modelItem.id;
+        modelRow.innerHTML = [
+          "<span class=\"rowCell\"><em>" + modelItem.architecture + "</em></span>",
+          "<span class=\"rowCell\"><em>" + modelItem.parameterScale + "</em></span>",
+          "<span class=\"rowCell publisherCell\">" + modelItem.publisher + "</span>",
+          "<span class=\"rowCell modelCell\"><strong>" + modelItem.modelName + "</strong><b>" + modelItem.versionTag + "</b></span>",
+          "<span class=\"rowCell\"><em>" + modelItem.quantization + "</em></span>",
+          "<span class=\"rowCell sizeCell\">" + modelItem.size + "</span>",
+          "<span class=\"rowCell timeCell\">" + modelItem.modifiedAt + "</span>",
+          "<span class=\"rowCell actionCell\"><span class=\"rowActionButton\">⋯</span><span class=\"rowActionButton\">⚙</span></span>"
+        ].join("");
+        modelRow.addEventListener("click", selectModelRow);
+        libraryTableBody.appendChild(modelRow);
+      });
+
+      if (filteredModelList.length === 0) {
+        libraryTableBody.innerHTML = frameState.currentLanguage === "zh"
+          ? "<div class=\"libraryEmptyState\">未找到匹配模型，请尝试调整筛选条件。</div>"
+          : "<div class=\"libraryEmptyState\">No matching models found. Try adjusting your filters.</div>";
+      }
+
+      if (frameState.currentLanguage === "zh") {
+        libraryToolbarMeta.textContent = "共 " + filteredModelList.length + " 个模型";
+      } else {
+        libraryToolbarMeta.textContent = filteredModelList.length + " models in total";
+      }
+    }
+
+    /**
+     * 根据当前选中模型刷新右侧详情面板。
+     */
+    function refreshDetailPanel() {
+      const currentModel = modelRegistry.find((modelItem) => modelItem.id === frameState.currentModelId);
+
+      if (!currentModel) {
+        return;
+      }
+
+      detailTitle.textContent = currentModel.detailTitle;
+      detailVersionTag.textContent = currentModel.versionTag;
+      detailModelRepo.textContent = currentModel.repo;
+      detailModelFile.textContent = currentModel.file;
+      detailModelFormat.textContent = currentModel.format;
+      detailModelQuantization.textContent = currentModel.quantization;
+      detailModelArch.textContent = currentModel.arch;
+      detailModelCapabilities.textContent = currentModel.capabilities;
+      detailModelDomain.textContent = currentModel.domain;
+      detailModelSize.textContent = currentModel.size;
+      detailCurrentDomain.textContent = currentModel.detailDomain;
+      detailRecommendedRuntime.textContent = currentModel.recommendedRuntime;
+      detailDefaultEntry.textContent = currentModel.defaultEntry;
+    }
+
+    /**
+     * 根据当前模型集合刷新底部磁盘空间汇总文案。
+     */
+    function refreshDiskSummary() {
+      const summaryText = frameState.currentLanguage === "zh"
+        ? "您有 " + modelRegistry.length + " 个本地模型，占用了 24.78 GB 的磁盘空间。"
+        : "You have " + modelRegistry.length + " local models, using 24.78 GB of disk space.";
+
+      libraryDiskSummary.textContent = summaryText;
+    }
+
+    /**
+     * 切换左侧模型分类并刷新表格与详情。
+     */
+    function switchCategory(event) {
+      frameState.currentCategoryId = event.currentTarget.dataset.categoryId;
+      renderCategoryList();
+      renderModelTable();
+      refreshDetailPanel();
+    }
+
+    /**
+     * 切换当前选中的模型行。
+     */
+    function selectModelRow(event) {
+      frameState.currentModelId = event.currentTarget.dataset.modelId;
+      renderModelTable();
+      refreshDetailPanel();
+    }
+
+    /**
+     * 响应搜索输入，实时过滤模型列表。
+     */
+    function handleSearchInput() {
+      renderCategoryList();
+      renderModelTable();
+      refreshDetailPanel();
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", frameState.currentLanguage);
+        linkUrl.searchParams.set("theme", frameState.currentTheme);
+        linkUrl.searchParams.set("sidebar", frameState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    /**
+     * 绑定当前页面交互事件。
+     */
+    function bindPageEvents() {
+      librarySearchInput.addEventListener("input", handleSearchInput);
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    refreshDiskSummary();
+    renderCategoryList();
+    renderModelTable();
+    refreshDetailPanel();
+    syncQueryLinks();
+    bindPageEvents();
+  </script>
+</body>
+</html>
+
+

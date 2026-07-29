@@ -1,129 +1,218 @@
 # AMUIN AI STACK
 
-A local AI model workbench for DGX Spark — download models, launch standardized container templates, and load models into vLLM / TensorRT-LLM / PyTorch runtimes with OpenAI-compatible APIs.
+AMUIN AI STACK is a local AI model operations workbench for DGX Spark and NVIDIA GPU workstations. It provides an Electron desktop console and a Vue 3 web console for inspecting local model files, downloading Hugging Face / ModelScope repositories, preparing runtime containers, launching model services, and exposing OpenAI-compatible endpoints through a local Node.js control plane.
 
-## Architecture
+The project is currently packaged as a Linux .deb desktop app. The source repository can be published on GitHub, but the npm package is marked private to avoid accidental npm registry publication.
 
-```
-Frontend Console (:8888) → Backend API (:8000) → Docker / NVIDIA Runtime
-                                                    ├── vLLM Service (:30000)
-                                                    ├── TensorRT-LLM Service (:31000)
-                                                    └── Audio Service (:32000, PyTorch)
-```
+## Current Status
 
-- **Management console** at `http://localhost:8888`
-- **Inference services** on ports `30000–60000`, one entry per service type
-- **3 standardized template containers** — vLLM, TensorRT-LLM, Audio (PyTorch) — pre-configured with Docker images, component dependencies, and restart policies
+Implemented today:
 
-## Quick Start
+- Electron desktop shell for the packaged app.
+- Vue 3 + Vite management console for dashboard, model library, runtime services, model publishing, playground, tasks, and settings.
+- Node.js / TypeScript backend API on port 8000.
+- Local model audit for Hugging Face checkpoints, TensorRT-LLM engines, GGUF files, and audio-model directories.
+- Hugging Face / ModelScope download planning and tracked background download tasks.
+- Runtime planning and deployment tasks for the default vLLM, TensorRT-LLM, and generic PyTorch slots.
+- Container lifecycle controls, image pull/test tasks, logs, and repair actions.
+- OpenAI-compatible HTTP proxy routes for running text/embedding runtimes.
+- Generic PyTorch environment template with health, runtime info, and model-directory listing endpoints.
+- Third-party notices in THIRD_PARTY_NOTICES.md.
 
-```bash
-cd /home/zhenz/ai-stack
+Not implemented as a built-in serving path yet:
 
-# Full stack (API + frontend + infrastructure)
-docker compose -f deploy/compose/docker-compose.yml up -d --build
+- TTS synthesis service. TTS/CosyVoice models are detected and categorized, but no production TTS REST or WebSocket synthesis endpoint is implemented yet.
+- GGUF serving. GGUF files are recognized as local assets, but built-in AMUIN runtimes do not serve them; use LM Studio, Ollama, or llama.cpp externally.
+- Production multi-node / multi-cluster scheduling, RBAC, quotas, or Kubernetes orchestration.
 
-# With vLLM worker
-docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.vllm.yml up -d --build
+## Runtime Ports And Endpoints
 
-# Audio-only stack (ASR + TTS)
-docker compose -f deploy/compose/docker-compose.audio.yml up -d --build
-```
+Default ports:
 
-Open `http://localhost:8888` to access the management console.
+| Component | Default | Notes |
+|---|---:|---|
+| Backend API | 8000 | Node.js control plane; exposes management APIs and /v1 OpenAI-compatible proxy routes. |
+| Web console dev server | 8888 | Vite dev/web mode only. In the packaged Electron app the frontend is loaded from local static files. |
+| vLLM runtime | 30000 | OpenAI-compatible model service at /v1 when a vLLM model is running. |
+| TensorRT-LLM runtime | 31000 | OpenAI-compatible model service at /v1 when a TensorRT-LLM model is running. |
+| PyTorch runtime | 32000 | Generic PyTorch environment with /healthz, /runtime, and /models. Audio/FunASR should be added as custom business runtimes. |
 
-## Directory Layout
+Backend API routes include:
 
-| Directory | Purpose |
-|-----------|---------|
-| `apps/api/` | Node.js/TypeScript control plane — model registry, downloads, deployments |
-| `apps/frontend/` | Vue 3 + Vite management console and chat UI |
-| `services/audio/` | Python ASR/TTS audio service (FunASR + CosyVoice, PyTorch) |
-| `deploy/compose/` | Docker Compose entrypoints (main, vllm, audio) |
-| `deploy/dockerfiles/` | Helper images (download tools) |
-| `models/` | Local model checkpoints and weights (gitignored) |
-| `configs/` | Model catalog, runtime profiles, residency policy |
-| `scripts/` | Development convenience scripts |
-| `ops/` | Operational scripts (download, health checks) |
-| `playbooks/` | DGX Spark reference playbooks and examples |
+| Route | Purpose |
+|---|---|
+| GET /healthz | API health check. |
+| GET /system/check | Host, GPU, Docker, network, and workbench status. |
+| GET /models | Local model registry and audit results. |
+| POST /models/import | Parse a Hugging Face / ModelScope URL into a download plan. |
+| POST /downloads | Start a tracked model download task. |
+| GET /tasks and GET /tasks/:id/logs | Task list and task logs. |
+| GET /containers | Runtime container inventory. |
+| POST /containers/:key/pull-image | Pull a runtime image. |
+| POST /containers/:key/start-test | Start a runtime container test. |
+| GET /deployments | Configured and running service slots. |
+| POST /deployments/start | Start a model deployment task. |
+| GET /deployments/:id/logs | Runtime container logs with task-log fallback. |
+| POST /deployments/:id/stop | Stop and remove a runtime container. |
+| POST /deployments/:id/restart | Restart a runtime container. |
+| GET :8888/models or GET :8888/v1/models | Live model directory. Each item contains the model runtime's direct endpoint, API kind, path, and public port. |
+| Model inference endpoints | Call the `endpoint` returned by the model directory directly; inference stays on each model runtime's own published port. |
+| POST /v1/chat/completions | Backend OpenAI-compatible chat proxy. |
+| POST /v1/embeddings | Backend OpenAI-compatible embeddings proxy. |
+| GET /audio/models | Historical audio proxy entry; it should target a custom Audio/FunASR service, not the default PyTorch container. |
 
-Automatically generated at runtime (gitignored): `volumes/`, `cache/`, `state/`, `logs/`, `tmp/`.
+Audio WebSocket routes:
 
-## Container Templates
+| Route | Status |
+|---|---|
+| ws://127.0.0.1:32000/v1/realtime | No longer implemented by the default PyTorch container; provide it from a custom Audio runtime. |
+| ws://127.0.0.1:32000/ws/realtime | Historical compatibility path; not implemented by the default PyTorch container. |
+| ws://127.0.0.1:8000/ws/audio/... | Backend audio proxy entry; configure the target to a custom Audio service. |
 
-| Template | Runtime | Port | Stack |
-|----------|---------|------|-------|
-| vLLM | LLM / VLM / Embedding | 30000 | Python, CUDA, PyTorch, vLLM |
-| TensorRT-LLM | High-performance LLM | 31000 | CUDA, TensorRT-LLM |
-| Audio Service | ASR / TTS | 32000 | Python, PyTorch, FunASR, CosyVoice |
+## Release Package
 
-All three are pre-debugged: Docker images pinned, components verified, restart policies set to `resident`. Launch a container, load a compatible model, and the endpoint is live.
+The release package is a .deb desktop application. It includes:
 
-## Workflow
+- Electron desktop shell and built frontend assets.
+- Built Node.js backend API and bundled runtime npm dependencies.
+- Runtime templates, Docker Compose templates, helper Dockerfiles, and operational scripts.
+- Download, deployment, TensorRT-LLM launch, health-check, and diagnostic scripts.
 
-```
-Import URL → Audit model → Download → Start container → Load model → Serve
-```
+In packaged mode, the app creates and uses a writable workspace under the Electron user-data directory:
 
-1. **Import** — paste a HuggingFace or ModelScope model URL
-2. **Audit** — auto-detect file structure, format, capabilities, and runtime compatibility
-3. **Download** — runs as a tracked background task with progress and logs
-4. **Start container** — pull the runtime image and launch from a standardized template
-5. **Load model** — deploy the local model into the target container
-6. **Serve** — model registers on the service port with an OpenAI-compatible endpoint
+~~~text
+~/.config/AMUIN AI STACK/workspace/
+├── models/     # model files
+├── cache/      # Hugging Face / ModelScope cache
+├── state/      # task state and temporary compose projects
+├── logs/       # download, deployment, and container task logs
+├── tmp/        # temporary files
+├── configs/    # default configs copied on first launch
+├── deploy/     # compose/template resources synced on launch
+└── ops/        # operational scripts synced on launch
+~~~
+
+The backend database defaults to:
+
+~~~text
+~/.local/share/ai-stack/data.db
+~~~
+
+In development mode, the repository root is used as AI_STACK_BASE by default.
+
+## Target Machine Requirements
+
+DGX Spark machines and similar NVIDIA GPU workstations usually provide the GPU driver stack, but verify these before testing model serving:
+
+| Requirement | Purpose | Check |
+|---|---|---|
+| Docker Engine | Pull, build, and run model containers | docker version |
+| Docker Compose v2 | Render and launch compose templates | docker compose version |
+| NVIDIA Driver | GPU visibility and nvidia-smi | nvidia-smi |
+| NVIDIA Container Toolkit | GPU access from Docker containers | docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi |
+| Docker socket permission | Allow AMUIN to manage containers | docker ps |
+| Network or preloaded images | Runtime image pulls and model downloads | docker pull vllm/vllm-openai:latest |
+
+The generated deb declares Docker, Compose, NVIDIA Container Toolkit, and Electron GUI library dependencies. If the target machine has no Docker/NVIDIA apt repositories configured, install the low-level runtime stack first using the machine vendor, NVIDIA, or Docker instructions.
+
+## Build And Run
+
+Install dependencies and build everything:
+
+~~~bash
+npm install
+npm run build
+~~~
+
+Package a .deb:
+
+~~~bash
+npm run pack
+~~~
+
+Or use the release helper:
+
+~~~bash
+bash scripts/build-deb.sh
+~~~
+
+The .deb is written to dist-electron/.
+
+Development launchers:
+
+~~~bash
+npm run dev          # auto-select Electron or web mode
+npm run dev:web      # API + Vite only, useful over SSH
+npm run dev:electron # force Electron
+npm run dev:xvfb     # Electron inside Xvfb
+~~~
+
+Web dev mode opens the console at http://127.0.0.1:8888 and proxies /api/* to the backend API at http://127.0.0.1:8000.
+
+## Runtime Architecture
+
+~~~text
+Electron desktop app or Vite web console
+        -> Backend API (:8000)
+        -> Docker / NVIDIA runtime
+          ├── vLLM service (:30000)
+          ├── TensorRT-LLM service (:31000)
+          └── PyTorch environment (:32000)
+~~~
+
+The backend control plane owns model audit, download tasks, runtime planning, deployment tasks, logs, health checks, and OpenAI-compatible proxy routing.
+
+## Typical Workflow
+
+1. Import a Hugging Face or ModelScope model URL.
+2. Review the generated download plan and expected runtime compatibility.
+3. Download model files as a tracked task.
+4. Audit local model files, format, capabilities, and GPU-memory fit.
+5. Pull or test the target runtime image.
+6. Start a deployment into the selected runtime slot.
+7. Call the running model through the backend /v1 proxy or the runtime service port.
+8. Inspect task logs, deployment logs, health checks, and repair actions if something fails.
 
 ## Runtime Compatibility
 
-| Model Format | vLLM | TensorRT-LLM | Audio | Notes |
+| Model / Format | vLLM | TensorRT-LLM | PyTorch | Notes |
 |---|---|---|---|---|
-| HF safetensors checkpoint | ✓ default | possible | — | Requires config.json + tokenizer + weight shards |
-| TensorRT-LLM engine | — | ✓ only | — | Cannot be served by vLLM |
-| GGUF single file | — | — | — | External (LM Studio); not deployed by this system |
-| FunASR / CosyVoice / Whisper | — | — | ✓ | Audio service only |
+| Hugging Face safetensors / bin checkpoint | Supported when model architecture is supported by vLLM | Possible, architecture/version dependent | No | Requires config, tokenizer, and complete weight shards. |
+| TensorRT-LLM engine | No | Supported route | No | Use the TensorRT-LLM service slot. |
+| GGUF single file | No | No | No | Recognized as a local asset only; serve externally with LM Studio/Ollama/llama.cpp. |
+| Whisper / FunASR-style ASR directory | No | No | Needs a custom Audio/FunASR container | The default PyTorch runtime is a generic environment and does not directly serve ASR. |
+| CosyVoice / TTS-style directory | No | No | Needs a custom Audio/TTS container | TTS serving is not implemented yet. |
 
-## API Endpoints
+## Repository Layout
 
-### Management API (internal, port 8000)
+| Path | Purpose |
+|---|---|
+| apps/main/ | Electron main process and packaged-app workspace bootstrap. |
+| apps/api/ | Node.js / TypeScript backend control plane. |
+| apps/frontend/ | Vue 3 + Vite management console. |
+| configs/ | Model catalog, runtime profiles, residency/proxy config. |
+| deploy/compose/ | Docker Compose definitions and runtime compose overlays. |
+| deploy/templates/ | Runtime templates, including the generic PyTorch environment template. |
+| deploy/dockerfiles/ | Helper Dockerfiles for download/runtime images. |
+| ops/scripts/ | Download, TensorRT-LLM, health-check, and diagnostic scripts. |
+| scripts/ | Development and packaging helpers. |
+| docs/ | Design notes, migration notes, and prototypes. |
+| THIRD_PARTY_NOTICES.md | Third-party dependency and upstream notice summary. |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/system/check` | System health, Docker, GPU, ports |
-| GET | `/models` | List local models with audit data |
-| POST | `/models/import` | Parse a model URL and preview the download plan |
-| POST | `/downloads` | Start a model download task |
-| GET | `/tasks` | List all tasks (download, deploy, container) |
-| GET | `/tasks/:id/logs` | Read task log output |
-| GET | `/deployments` | List configured and active deployments |
-| POST | `/deployments` | Deploy a model to a runtime |
-| GET | `/containers` | List runtime containers with status |
-| POST | `/containers/:key/pull-image` | Pull a runtime Docker image |
-| POST | `/containers/:key/test-image` | Test a runtime image |
-| GET/POST | `/settings/workbench` | Read or update management port |
-| GET/POST | `/settings/network` | Read or toggle LAN access |
+## Publication Notes
 
-### OpenAI-compatible API (port 8888, proxied to running services)
+Before pushing a public GitHub repository:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/models` | List models on active deployments |
-| POST | `/v1/chat/completions` | Chat completions |
-| POST | `/v1/embeddings` | Embeddings |
+- Do not commit model weights, caches, logs, runtime state, or packaged Electron output.
+- Keep models/, cache/, logs/, state/, volumes/, dist-electron/, .cache/, and .npm-cache/ out of git.
+- Keep upstream SPDX notices in files that already contain them.
+- Review THIRD_PARTY_NOTICES.md when adding dependencies, vendor snippets, runtime images, or model templates.
+- Remember that model licenses are separate from the AMUIN source license; users must comply with each downloaded model license.
 
-## Port Policy
+## Troubleshooting
 
-| Port | Service |
-|------|---------|
-| `8888` | Management console (fixed) |
-| `8000` | Backend API (internal) |
-| `30000` | vLLM OpenAI service |
-| `31000` | TensorRT-LLM OpenAI service |
-| `32000` | Audio HTTP/WebSocket service |
-
-Inference ports are per service type, not per model. Models register into their target service.
-
-## Notes
-
-- ModelScope (`modelscope.cn`) is the primary download source; HuggingFace may time out on this host
-- Docker socket access is required for all container operations
-- vLLM is not universal — some architectures, quantizations, or multimodal models may need specific versions
-- TensorRT-LLM support depends on the DGX Spark image version and model architecture
+- docker ps fails: add the user to the docker group and log in again.
+- Containers cannot see the GPU: check the NVIDIA driver, nvidia-smi, and nvidia-container-toolkit.
+- Runtime image pulls are slow or unavailable: preload images with docker pull, docker save, and docker load.
+- Downloads fail: check proxy, DNS, Hugging Face / ModelScope reachability, and configs/proxy.env.
+- Port conflicts: default ports are 8000, 8888, 30000, 31000, and 32000; free those ports or update runtime settings.

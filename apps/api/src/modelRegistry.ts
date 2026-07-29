@@ -1,7 +1,8 @@
-import { access, readdir, readFile, rm, stat } from "node:fs/promises";
+import { access, open, readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { isWeightFile, runCommand, safeSize, slugify } from "./utils.js";
 import { deleteModelFiles } from "./store.js";
+import { inspectModelIntegrity } from "./modelIntegrity.js";
 import type { CompatibilityInfo, ModelAuditIssue, ModelGpuMemoryAudit, ModelRuntimeRecommendation, DeploymentRecord, ModelRecord, ServiceType } from "./types.js";
 import {
   resolveStrategy, detectCapabilities as detectCaps, compatibilityForModel,
@@ -10,6 +11,43 @@ import {
 
 /* ── constants ─────────────────────────────────── */
 const configNames = new Set(["config.json", "tokenizer.json", "tokenizer_config.json", "configuration.json", "config.yaml", "cosyvoice.yaml"]);
+const stagingDirNames = new Set([".temp"]);
+
+const quantizationPattern = /\b(I?Q\d(?:_[A-Z0-9]+)*|TQ\d(?:_[A-Z0-9]+)*|Q\d(?:_[A-Z0-9]+)*|INT[48]|FP(?:16|32)|BF16|F(?:16|32)|4BIT|8BIT|NF4|GPTQ|AWQ)\b/i;
+
+const ggufFileTypes: Record<number, string> = {
+  0: "F32",
+  1: "F16",
+  2: "Q4_0",
+  3: "Q4_1",
+  6: "Q5_0",
+  7: "Q5_1",
+  8: "Q8_0",
+  9: "Q8_1",
+  10: "Q2_K",
+  11: "Q3_K",
+  12: "Q4_K",
+  13: "Q5_K",
+  14: "Q6_K",
+  15: "Q8_K",
+  16: "IQ2_XXS",
+  17: "IQ2_XS",
+  18: "IQ3_XXS",
+  19: "IQ1_S",
+  20: "IQ4_NL",
+  21: "IQ3_S",
+  22: "IQ2_S",
+  23: "IQ4_XS",
+  24: "I8",
+  25: "I16",
+  26: "I32",
+  27: "I64",
+  28: "F64",
+  29: "IQ1_M",
+  30: "BF16",
+  34: "TQ1_0",
+  35: "TQ2_0"
+};
 
 export const servicePorts = {
   vllm: Number(process.env.VLLM_PUBLIC_PORT ?? "30000"),
@@ -148,52 +186,76 @@ export function parseModelSource(url: string, alias?: string, provider = "auto")
   let repoId: string | null = null;
 
   if (provider === "auto") {
-    if (parsed.hostname === "modelscope.cn") inferredProvider = "modelscope";
-    else if (parsed.hostname === "huggingface.co" || parsed.protocol === "hf:") inferredProvider = "huggingface";
+    if (isHostnameOrSubdomain(parsed.hostname, "modelscope.cn")) inferredProvider = "modelscope";
+    else if (isHostnameOrSubdomain(parsed.hostname, "huggingface.co") || parsed.protocol === "hf:") inferredProvider = "huggingface";
     else inferredProvider = url.includes("/") ? "huggingface" : "unknown";
   }
 
   if (inferredProvider === "modelscope") {
     const parts = parsed.pathname.split("/").filter(Boolean);
-    repoId = parts[0] === "models" ? parts.slice(1).slice(0, 2).join("/") : parts.slice(0, 2).join("/") || null;
+    repoId = normalizeRepoId(parts[0] === "models" ? parts.slice(1).slice(0, 2).join("/") : parts.slice(0, 2).join("/") || null);
   } else if (inferredProvider === "huggingface") {
     const parts = parsed.protocol === "hf:" ? `${parsed.hostname}${parsed.pathname}`.split("/").filter(Boolean) : parsed.pathname.split("/").filter(Boolean);
-    repoId = parts.slice(0, 2).join("/") || (url.includes("/") ? url.replace(/^https?:\/\/huggingface\.co\//, "") : null);
+    repoId = normalizeRepoId(parts.slice(0, 2).join("/") || (url.includes("/") ? url.replace(/^https?:\/\/huggingface\.co\//, "") : null));
   }
 
   const suggestedAlias = alias || slugify((repoId || url).split("/").pop() || "model");
   return { provider: inferredProvider, repo_id: repoId, alias: suggestedAlias, target_path: `models/${suggestedAlias}`, original_url: url };
 }
 
+function isHostnameOrSubdomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith("." + domain);
+}
+
+function normalizeRepoId(repoId: string | null): string | null {
+  if (!repoId) return repoId;
+  const parts = repoId.split("/");
+  const repoName = parts.pop();
+  if (!repoName) return repoId;
+  parts.push(repoName.replace(/\.git$/i, ""));
+  return parts.join("/");
+}
+
 /* ── model audit ───────────────────────────────── */
 async function auditModelPath(path: string, gpuMemory: GpuMemoryInfo): Promise<ModelRecord> {
   const rootStat = await stat(path);
-  const files = rootStat.isFile() ? [path] : await walkFiles(path);
-  const names = new Set(files.map((file) => basename(file)));
+  const allFiles = rootStat.isFile() ? [path] : await walkFiles(path, { includeStaging: true });
+  const files = rootStat.isFile() ? [path] : await walkFiles(path, { includeStaging: false });
+  const stagingFiles = allFiles.filter((file) => isStagingPath(path, file));
+  const discoveryFiles = files.length ? files : allFiles;
+  const names = new Set(discoveryFiles.flatMap((file) => pathNameTokens(path, file)));
   const weightFiles = files.filter(isWeightFile);
-  const incompleteFiles = files.filter((file) => basename(file).includes(".incomplete"));
+  const incompleteFiles = [
+    ...files.filter((file) => basename(file).includes(".incomplete")),
+    ...stagingFiles
+  ];
+  const integrity = await inspectModelIntegrity(path, files);
+  const missingIndexedWeightFiles = integrity.missing_indexed_weight_files;
   const configs = [...names].filter((name) => configNames.has(name)).sort();
   const config = rootStat.isDirectory() ? await readJson(join(path, "config.json")) : {};
   const tokenizerConfig = rootStat.isDirectory() ? await readJson(join(path, "tokenizer_config.json")) : {};
   const inference = inferInferenceLimits(config, tokenizerConfig);
 
-  // Detect in-progress .temp download staging
-  const hasTempDir = rootStat.isDirectory() ? await (async () => {
-    try { await access(join(path, ".temp")); return true; } catch { return false; }
-  })() : false;
+  const hasTempDir = stagingFiles.length > 0 || (rootStat.isDirectory() ? await hasStagingDir(path) : false);
 
-  const params: FormatMatchParams = { path, isFile: rootStat.isFile(), files, names, configs, config };
+  const params: FormatMatchParams = { path, isFile: rootStat.isFile(), files: discoveryFiles, names, configs, config };
   const strategy = resolveStrategy(params);
   const capabilities = detectCaps(params);
 
-  const format = strategy.name;
+  const format = strategy.name === "audio"
+    ? inferAudioFormat(discoveryFiles)
+    : strategy.name === "locate_anything"
+      ? "hf_safetensors"
+      : strategy.name;
+  const architecture = inferArchitecture(path, config, tokenizerConfig, format, capabilities);
+  const quantization = await inferQuantization(path, rootStat.isFile(), discoveryFiles, format, config, tokenizerConfig);
 
-  const download = hasTempDir ? "incomplete" : downloadStatusFor(format, weightFiles.length, configs, incompleteFiles.length);
-  const sizeBytes = (await Promise.all(files.map(safeSize))).reduce((sum, size) => sum + size, 0);
+  const download = hasTempDir || missingIndexedWeightFiles.length > 0 ? "incomplete" : downloadStatusFor(format, weightFiles.length, configs, incompleteFiles.length);
+  const sizeBytes = (await Promise.all(allFiles.map(safeSize))).reduce((sum, size) => sum + size, 0);
   const basePath = rootStat.isDirectory() ? path : join(path, "..");
 
   const compatibility = compatibilityForModel(format, capabilities, configs);
-  const audit = auditForModel(format, capabilities, configs, weightFiles.length, incompleteFiles.length, hasTempDir, compatibility, sizeBytes, gpuMemory);
+  const audit = auditForModel(format, capabilities, configs, weightFiles.length, incompleteFiles.length, hasTempDir, missingIndexedWeightFiles, compatibility, sizeBytes, gpuMemory);
 
   return {
     id: slugify(rootStat.isFile() ? basename(path, extname(path)) : basename(path)),
@@ -203,11 +265,16 @@ async function auditModelPath(path: string, gpuMemory: GpuMemoryInfo): Promise<M
       path,
       layout: strategy.name,
       format,
+      architecture,
+      quantization,
       size_bytes: sizeBytes,
-      file_count: files.length,
+      file_count: allFiles.length,
       weight_files: weightFiles.length,
       config_files: configs,
-      incomplete_files: incompleteFiles.slice(0, 20).map((file) => relative(basePath, file))
+      incomplete_files: [
+        ...incompleteFiles.slice(0, 20).map((file) => relative(basePath, file)),
+        ...missingIndexedWeightFiles.slice(0, 20)
+      ]
     },
     capabilities,
     runtime: strategy.runtime,
@@ -220,17 +287,340 @@ async function auditModelPath(path: string, gpuMemory: GpuMemoryInfo): Promise<M
 }
 
 /* ── helpers ───────────────────────────────────── */
-async function walkFiles(root: string): Promise<string[]> {
+async function walkFiles(root: string, options: { includeStaging?: boolean } = {}): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
-    // Skip .temp staging directories used during downloads
-    if (entry.name === ".temp") continue;
+    if (!options.includeStaging && stagingDirNames.has(entry.name)) continue;
     const path = join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await walkFiles(path));
+    if (entry.isDirectory()) files.push(...await walkFiles(path, options));
     else if (entry.isFile()) files.push(path);
   }
   return files;
+}
+
+async function hasStagingDir(root: string): Promise<boolean> {
+  for (const name of stagingDirNames) {
+    try { await access(join(root, name)); return true; } catch { /* absent */ }
+  }
+  return false;
+}
+
+function isStagingPath(root: string, file: string): boolean {
+  const parts = relative(root, file).split(/[\/]+/);
+  return parts.some((part) => stagingDirNames.has(part));
+}
+
+function pathNameTokens(root: string, file: string): string[] {
+  return relative(root, file).split(/[\/]+/).filter(Boolean).concat(basename(file));
+}
+
+function inferAudioFormat(files: string[]): string {
+  const extensions = new Set(files.filter(isWeightFile).map((file) => extname(file).toLowerCase()));
+  const hasOnnx = extensions.has(".onnx");
+  const hasPt = extensions.has(".pt") || extensions.has(".pth");
+  if (hasOnnx && hasPt) return "audio_onnx_pt";
+  if (hasOnnx) return "audio_onnx";
+  if (hasPt) return "audio_pt";
+  return "audio";
+}
+
+function inferArchitecture(
+  modelPath: string,
+  config: Record<string, unknown>,
+  tokenizerConfig: Record<string, unknown>,
+  format: string,
+  capabilities: string[]
+): string | null {
+  if (format.startsWith("audio") || capabilities.some((capability) => ["asr", "tts", "speaker-verification", "speaker-diarization"].includes(capability))) return "PyTorch";
+  if (["hf_safetensors", "hf_bin", "hf_partial"].includes(format)) return "Transformers";
+  if (format === "gguf") return "GGUF";
+  if (format === "trtllm_engine") return "TensorRT-LLM";
+
+  const architectureValues = Array.isArray(config.architectures) ? config.architectures : [];
+  const candidates = [
+    config.model_type,
+    ...architectureValues,
+    nestedValue(config, ["text_config", "model_type"]),
+    nestedValue(config, ["vision_config", "model_type"]),
+    nestedValue(config, ["audio_config", "model_type"]),
+    nestedValue(config, ["model", "type"]),
+    tokenizerConfig.tokenizer_class,
+    basename(modelPath)
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  for (const candidate of candidates) {
+    const framework = inferFrameworkFromText(candidate);
+    if (framework) return framework;
+  }
+  return null;
+}
+
+function inferFrameworkFromText(value: string): string | null {
+  const text = value.toLowerCase().replace(/[_\s]+/g, "-");
+  if (/(cosyvoice|cosy-voice|funasr|fun-asr|sensevoice|sense-voice|whisper|campplus|eres2net|speech|speaker)/.test(text)) return "PyTorch";
+  if (/(qwen|llama|mistral|mixtral|gemma|deepseek|chatglm|glm|baichuan|\byi\b|yi-|phi|internvl|internlm|llava|minicpm|gpt-neox|gptj|gpt-j|gpt2|gpt-2|bert)/.test(text)) return "Transformers";
+  return null;
+}
+
+async function inferQuantization(
+  modelPath: string,
+  isFile: boolean,
+  files: string[],
+  format: string,
+  config: Record<string, unknown>,
+  tokenizerConfig: Record<string, unknown>
+): Promise<string | null> {
+  const fromConfig = inferQuantizationFromConfig(config, tokenizerConfig);
+  const fromConfigFiles = await inferQuantizationFromConfigFiles(files);
+  const fromName = inferQuantizationFromName([modelPath, ...files].map((file) => basename(file)).join(" "));
+  const ggufFile = format === "gguf"
+    ? (isFile && modelPath.toLowerCase().endsWith(".gguf") ? modelPath : files.find((file) => file.toLowerCase().endsWith(".gguf")))
+    : undefined;
+  if (ggufFile) return await readGgufQuantization(ggufFile) ?? fromName ?? fromConfig ?? fromConfigFiles;
+
+  const safetensorsPrecision = await readSafetensorsPrecision(files.find((file) => file.toLowerCase().endsWith(".safetensors")));
+  return fromConfig ?? fromName ?? safetensorsPrecision ?? fromConfigFiles;
+}
+
+function inferQuantizationFromConfig(...configs: Record<string, unknown>[]): string | null {
+  for (const config of configs) {
+    const mlxQuantization = config.quantization;
+    if (isRecord(mlxQuantization)) {
+      const bits = Number(mlxQuantization.bits);
+      if (Number.isFinite(bits) && bits > 0) return `MLX ${bits}-bit`;
+      return "MLX";
+    }
+    const quantizationConfig = config.quantization_config;
+    if (isRecord(quantizationConfig)) {
+      const method = stringValue(quantizationConfig.quant_method ?? quantizationConfig.quantization_method ?? quantizationConfig.type);
+      const bits = Number(quantizationConfig.bits ?? quantizationConfig.num_bits ?? quantizationConfig.load_in_bits);
+      if (method && /awq/i.test(method)) return "AWQ";
+      if (method && /gptq/i.test(method)) return "GPTQ";
+      if (method && /nf4/i.test(method)) return "NF4";
+      if (Number.isFinite(bits) && bits > 0) return normalizeQuantization(`INT${bits}`);
+      if (quantizationConfig.load_in_4bit === true) return "INT4";
+      if (quantizationConfig.load_in_8bit === true) return "INT8";
+      if (method) return normalizeQuantization(method);
+    }
+    const dtypeCandidates = [
+      config.torch_dtype,
+      config.dtype,
+      nestedValue(config, ["text_config", "torch_dtype"]),
+      nestedValue(config, ["text_config", "dtype"]),
+      nestedValue(config, ["vision_config", "torch_dtype"]),
+      nestedValue(config, ["vision_config", "dtype"]),
+      nestedValue(config, ["audio_config", "torch_dtype"]),
+      nestedValue(config, ["audio_config", "dtype"])
+    ];
+    const dtype = dtypeCandidates.map(stringValue).map(normalizePrecision).find(Boolean);
+    if (dtype) return dtype;
+  }
+  return null;
+}
+
+async function inferQuantizationFromConfigFiles(files: string[]): Promise<string | null> {
+  const configFiles = files
+    .filter((file) => /\.(json|ya?ml)$/i.test(file) && /(?:^|\/)(?:config|configuration|cosyvoice|model)(?:[_-]?[a-z0-9]*)?\.(?:json|ya?ml)$/i.test(file))
+    .sort((a, b) => a.length - b.length)
+    .slice(0, 12);
+  for (const file of configFiles) {
+    try {
+      const text = await readFile(file, "utf-8");
+      const matched = text.match(/\b(?:torch_dtype|dtype|llm_dtype|precision|weight_dtype)\s*[:=]\s*["']?([A-Za-z0-9_.-]+)["']?/i);
+      const precision = matched ? normalizePrecision(matched[1]) : null;
+      if (precision) return precision;
+    } catch {
+      // Ignore unreadable optional metadata files.
+    }
+  }
+  return null;
+}
+
+function inferQuantizationFromName(text: string): string | null {
+  const matched = text.match(quantizationPattern);
+  if (!matched) return null;
+  return normalizeQuantization(matched[1]);
+}
+
+function normalizeQuantization(value: string): string {
+  return value.toUpperCase().replace("4BIT", "INT4").replace("8BIT", "INT8");
+}
+
+function normalizePrecision(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.toLowerCase().replace(/^torch\./, "").replace(/[_\s-]/g, "");
+  if (["bfloat16", "bf16"].includes(normalized)) return "BF16";
+  if (["float16", "fp16", "f16", "half"].includes(normalized)) return "FP16";
+  if (["float32", "fp32", "f32", "single"].includes(normalized)) return "FP32";
+  if (["float64", "fp64", "f64", "double"].includes(normalized)) return "FP64";
+  return null;
+}
+
+function nestedValue(source: Record<string, unknown>, path: string[]): unknown {
+  let current: unknown = source;
+  for (const key of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function readSafetensorsPrecision(filePath?: string): Promise<string | null> {
+  if (!filePath) return null;
+  try {
+    const handle = await open(filePath, "r");
+    try {
+      const lengthBuffer = Buffer.alloc(8);
+      const { bytesRead } = await handle.read(lengthBuffer, 0, 8, 0);
+      if (bytesRead !== 8) return null;
+      const headerLength = Number(lengthBuffer.readBigUInt64LE(0));
+      if (!Number.isSafeInteger(headerLength) || headerLength <= 0 || headerLength > 64 * 1024 * 1024) return null;
+      const headerBuffer = Buffer.alloc(headerLength);
+      const headerRead = await handle.read(headerBuffer, 0, headerLength, 8);
+      if (headerRead.bytesRead !== headerLength) return null;
+      const header = JSON.parse(headerBuffer.toString("utf-8")) as Record<string, { dtype?: string } | unknown>;
+      const counts = new Map<string, number>();
+      for (const [key, value] of Object.entries(header)) {
+        if (key === "__metadata__" || !isRecord(value)) continue;
+        const precision = normalizePrecision(stringValue(value.dtype));
+        if (precision) counts.set(precision, (counts.get(precision) ?? 0) + 1);
+      }
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function readGgufQuantization(filePath: string): Promise<string | null> {
+  try {
+    const handle = await open(filePath, "r");
+    try {
+      const statInfo = await handle.stat();
+      const size = Math.min(Number(statInfo.size), 64 * 1024 * 1024);
+      const buffer = Buffer.alloc(size);
+      const { bytesRead } = await handle.read(buffer, 0, size, 0);
+      return parseGgufQuantization(buffer.subarray(0, bytesRead));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+class GgufReader {
+  offset = 0;
+  constructor(readonly buffer: Buffer) {}
+  remaining(): number { return this.buffer.length - this.offset; }
+  skip(bytes: number) { if (this.remaining() < bytes) throw new Error("Unexpected EOF"); this.offset += bytes; }
+  u32(): number { if (this.remaining() < 4) throw new Error("Unexpected EOF"); const value = this.buffer.readUInt32LE(this.offset); this.offset += 4; return value; }
+  i32(): number { if (this.remaining() < 4) throw new Error("Unexpected EOF"); const value = this.buffer.readInt32LE(this.offset); this.offset += 4; return value; }
+  f32(): number { if (this.remaining() < 4) throw new Error("Unexpected EOF"); const value = this.buffer.readFloatLE(this.offset); this.offset += 4; return value; }
+  f64(): number { if (this.remaining() < 8) throw new Error("Unexpected EOF"); const value = this.buffer.readDoubleLE(this.offset); this.offset += 8; return value; }
+  u64(): bigint { if (this.remaining() < 8) throw new Error("Unexpected EOF"); const value = this.buffer.readBigUInt64LE(this.offset); this.offset += 8; return value; }
+  i64(): bigint { if (this.remaining() < 8) throw new Error("Unexpected EOF"); const value = this.buffer.readBigInt64LE(this.offset); this.offset += 8; return value; }
+  bool(): boolean { if (this.remaining() < 1) throw new Error("Unexpected EOF"); return this.buffer[this.offset++] !== 0; }
+  string(): string {
+    const length = Number(this.u64());
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.remaining()) throw new Error("Invalid string length");
+    const value = this.buffer.subarray(this.offset, this.offset + length).toString("utf8");
+    this.offset += length;
+    return value;
+  }
+}
+
+function parseGgufQuantization(buffer: Buffer): string | null {
+  const reader = new GgufReader(buffer);
+  if (reader.remaining() < 24 || reader.buffer.subarray(0, 4).toString("ascii") !== "GGUF") return null;
+  reader.skip(4);
+  const version = reader.u32();
+  if (version < 2) return null;
+  const tensorCount = Number(reader.u64());
+  const metadataCount = Number(reader.u64());
+  if (!Number.isSafeInteger(tensorCount) || !Number.isSafeInteger(metadataCount)) return null;
+
+  let metadataFileType: string | null = null;
+  for (let index = 0; index < metadataCount; index++) {
+    const key = reader.string();
+    const value = readGgufMetadataValue(reader);
+    if (key === "general.file_type" && typeof value === "number") {
+      metadataFileType = ggufFileTypes[value] ?? null;
+    }
+  }
+  if (metadataFileType) return metadataFileType;
+
+  const counts = new Map<string, number>();
+  for (let index = 0; index < tensorCount; index++) {
+    reader.string();
+    const dimensions = reader.u32();
+    reader.skip(dimensions * 8);
+    const tensorType = reader.u32();
+    reader.u64();
+    const label = ggufFileTypes[tensorType];
+    if (label && !["F32", "F16"].includes(label)) counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+function readGgufMetadataValue(reader: GgufReader): unknown {
+  const type = reader.u32();
+  switch (type) {
+    case 0: return reader.buffer[reader.offset++];
+    case 1: return reader.buffer.readInt8(reader.offset++);
+    case 2: { if (reader.remaining() < 2) throw new Error("Unexpected EOF"); const value = reader.buffer.readUInt16LE(reader.offset); reader.offset += 2; return value; }
+    case 3: { if (reader.remaining() < 2) throw new Error("Unexpected EOF"); const value = reader.buffer.readInt16LE(reader.offset); reader.offset += 2; return value; }
+    case 4: return reader.u32();
+    case 5: return reader.i32();
+    case 6: return reader.f32();
+    case 7: return reader.bool();
+    case 8: return reader.string();
+    case 9: {
+      const itemType = reader.u32();
+      const length = Number(reader.u64());
+      for (let index = 0; index < length; index++) skipGgufValue(reader, itemType);
+      return null;
+    }
+    case 10: return Number(reader.u64());
+    case 11: return Number(reader.i64());
+    case 12: return reader.f64();
+    default: throw new Error("Unknown GGUF metadata type");
+  }
+}
+
+function skipGgufValue(reader: GgufReader, type: number): void {
+  switch (type) {
+    case 0:
+    case 1:
+    case 7:
+      reader.skip(1); return;
+    case 2:
+    case 3:
+      reader.skip(2); return;
+    case 4:
+    case 5:
+    case 6:
+      reader.skip(4); return;
+    case 10:
+    case 11:
+    case 12:
+      reader.skip(8); return;
+    case 8:
+      reader.string(); return;
+    default:
+      throw new Error("Unsupported nested GGUF metadata type");
+  }
 }
 
 
@@ -241,6 +631,7 @@ function auditForModel(
   weightFileCount: number,
   incompleteFileCount: number,
   hasTempDir: boolean,
+  missingIndexedWeightFiles: string[],
   compatibility: Record<string, CompatibilityInfo>,
   sizeBytes: number,
   gpuMemory: GpuMemoryInfo
@@ -248,10 +639,15 @@ function auditForModel(
   const issues: ModelAuditIssue[] = [];
   if (hasTempDir) issues.push({ code: "download_staging_present", severity: "warning", message: "Download staging directory is present; wait for the download task to finish or cancel and retry." });
   if (incompleteFileCount > 0) issues.push({ code: "incomplete_files", severity: "error", message: "Incomplete files were found in the model directory." });
-  if (["hf_safetensors", "hf_bin", "hf_partial"].includes(format) && !configs.includes("config.json")) {
+  if (missingIndexedWeightFiles.length > 0) issues.push({
+    code: "missing_indexed_weight_files",
+    severity: "error",
+    message: "Weight index references missing shard files: " + missingIndexedWeightFiles.slice(0, 3).join(", ") + (missingIndexedWeightFiles.length > 3 ? " ..." : "")
+  });
+  if (["hf_safetensors", "hf_bin", "hf_partial", "vibevoice"].includes(format) && !configs.includes("config.json")) {
     issues.push({ code: "missing_config", severity: "error", message: "config.json is missing; vLLM and TensorRT-LLM need model config metadata." });
   }
-  if (["hf_safetensors", "hf_bin", "hf_partial", "audio", "trtllm_engine"].includes(format) && weightFileCount === 0) {
+  if ((["hf_safetensors", "hf_bin", "hf_partial", "trtllm_engine", "vibevoice"].includes(format) || format.startsWith("audio")) && weightFileCount === 0) {
     issues.push({ code: "missing_weights", severity: "error", message: "No weight or engine files were found." });
   }
   if (format === "unknown") issues.push({ code: "unknown_layout", severity: "warning", message: "Model layout is not recognized; inspect files before deployment." });
@@ -304,7 +700,7 @@ function estimateRuntimeMemoryBytes(format: string, sizeBytes: number): number |
   if (!sizeBytes) return undefined;
   if (["hf_safetensors", "hf_bin", "hf_partial"].includes(format)) return Math.ceil(sizeBytes * 1.35 + 2 * 1024 ** 3);
   if (format === "trtllm_engine") return Math.ceil(sizeBytes * 1.15 + 1 * 1024 ** 3);
-  if (format === "audio") return Math.ceil(sizeBytes * 1.2 + 1 * 1024 ** 3);
+  if (format.startsWith("audio") || format === "vibevoice") return Math.ceil(sizeBytes * 1.2 + 1 * 1024 ** 3);
   return undefined;
 }
 
@@ -318,8 +714,11 @@ function recommendationRank(status: string): number {
 function downloadStatusFor(format: string, weightFileCount: number, configs: string[], incompleteFileCount: number): string {
   if (incompleteFileCount > 0) return "incomplete";
   if (format === "gguf") return "unsupported";
+  if (format === "mlx_safetensors") return weightFileCount > 0 && configs.includes("config.json") ? "ready" : "needs_review";
   if (format === "trtllm_engine") return weightFileCount > 0 ? "ready" : "needs_review";
-  if (format === "audio") return weightFileCount > 0 ? "ready" : "needs_review";
+  if (format === "qwen3_tts") return weightFileCount > 0 && configs.includes("config.json") ? "ready" : "needs_review";
+  if (format === "vibevoice") return weightFileCount > 0 && configs.includes("config.json") ? "ready" : "needs_review";
+  if (format.startsWith("audio")) return weightFileCount > 0 ? "ready" : "needs_review";
   if (["hf_safetensors", "hf_bin", "hf_partial"].includes(format)) return weightFileCount > 0 && configs.includes("config.json") ? "ready" : "needs_review";
   return "needs_review";
 }

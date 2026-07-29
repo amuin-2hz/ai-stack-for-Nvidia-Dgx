@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>systemStatus</title>
+  <link rel="stylesheet" href="../style/systemStatus.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <button class="sideNavItem" type="button">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </button>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <section class="homeBanner">
+          <div class="homeBannerInner">
+            <span class="homeBannerEyebrow">AMUIN AI STACK</span>
+            <h1 data-i18n data-zh="系统状态" data-en="System Status">系统状态</h1>
+            <p data-i18n data-zh="面向演示场景集中展示设备资源、接口端口、本机入口和模型目录信息。" data-en="Show device resources, port status, local entrances, and model directory information for demo purposes.">面向演示场景集中展示设备资源、接口端口、本机入口和模型目录信息。</p>
+          </div>
+          <div class="homeBannerDecor"></div>
+        </section>
+
+        <section class="statusGrid">
+          <article class="statusCard">
+            <div class="panelHeader">
+              <h2 data-i18n data-zh="资源状态" data-en="Resource Status">资源状态</h2>
+            </div>
+            <div class="resourceGrid">
+              <div class="resourceItem">
+                <div class="gaugeRing" style="--gaugeValue: 1;">
+                  <div class="gaugeInner">
+                    <strong>1%</strong>
+                  </div>
+                </div>
+                <strong class="resourceName">CPU</strong>
+                <span class="resourceMeta">20 cores</span>
+              </div>
+              <div class="resourceItem">
+                <div class="gaugeRing" style="--gaugeValue: 4;">
+                  <div class="gaugeInner">
+                    <strong>4%</strong>
+                  </div>
+                </div>
+                <strong class="resourceName" data-i18n data-zh="内存" data-en="Memory">内存</strong>
+                <span class="resourceMeta">4.8 GB / 121.6 GB</span>
+              </div>
+              <div class="resourceItem">
+                <div class="gaugeRing" style="--gaugeValue: 22;">
+                  <div class="gaugeInner">
+                    <strong>22%</strong>
+                  </div>
+                </div>
+                <strong class="resourceName" data-i18n data-zh="存储" data-en="Storage">存储</strong>
+                <span class="resourceMeta">/</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="statusCard">
+            <div class="panelHeader">
+              <h2 data-i18n data-zh="接口端口" data-en="Interface Ports">接口端口</h2>
+            </div>
+            <div class="tablePanel">
+              <div class="tableHeader tableRow">
+                <span data-i18n data-zh="容器名" data-en="Container">容器名</span>
+                <span data-i18n data-zh="端口" data-en="Port">端口</span>
+                <span data-i18n data-zh="状态" data-en="Status">状态</span>
+              </div>
+              <div class="tableBody">
+                <div class="tableRow">
+                  <span>vllm</span>
+                  <span>30000</span>
+                  <span class="statusBadge isReady" data-i18n data-zh="可用" data-en="Ready">可用</span>
+                </div>
+                <div class="tableRow">
+                  <span>trtllm</span>
+                  <span>31000</span>
+                  <span class="statusBadge isReady" data-i18n data-zh="可用" data-en="Ready">可用</span>
+                </div>
+                <div class="tableRow">
+                  <span>pytorch</span>
+                  <span>32000</span>
+                  <span class="statusBadge isReady" data-i18n data-zh="可用" data-en="Ready">可用</span>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="statusCard">
+            <div class="panelHeader">
+              <h2 data-i18n data-zh="本机入口" data-en="Local Entrances">本机入口</h2>
+            </div>
+            <div class="infoGrid">
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="控制台地址" data-en="Console URL">控制台地址</span>
+                <strong>http://192.168.31.55:8888</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="后端 API" data-en="Backend API">后端 API</span>
+                <strong>http://localhost:8000</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="模型列表" data-en="Model List">模型列表</span>
+                <strong>http://192.168.31.55:30000/v1/models</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel">LAN</span>
+                <strong>192.168.31.55</strong>
+              </div>
+            </div>
+            <div class="actionRow">
+              <button class="ghostButton" type="button" data-i18n data-zh="控制台" data-en="Console">控制台</button>
+              <button class="primaryButton" type="button" data-i18n data-zh="模型列表" data-en="Model List">模型列表</button>
+              <button class="ghostButton" type="button" data-i18n data-zh="设置" data-en="Settings">设置</button>
+            </div>
+          </article>
+
+          <article class="statusCard">
+            <div class="panelHeader">
+              <h2 data-i18n data-zh="模型目录" data-en="Model Directory">模型目录</h2>
+            </div>
+            <div class="infoGrid">
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="推断路径" data-en="Path">推断路径</span>
+                <strong>/home/zhenz/ai-stack/models</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="就绪模型" data-en="Ready Models">就绪模型</span>
+                <strong>3 / 5</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="大小" data-en="Size">大小</span>
+                <strong>19.6 GB</strong>
+              </div>
+              <div class="infoItem">
+                <span class="infoLabel" data-i18n data-zh="运行时状态" data-en="Runtime Status">运行时状态</span>
+                <strong data-i18n data-zh="0 / 3 运行中" data-en="0 / 3 Running">0 / 3 运行中</strong>
+              </div>
+            </div>
+            <div class="actionRow">
+              <button class="primaryButton" type="button" data-i18n data-zh="模型库" data-en="Model Library">模型库</button>
+              <button class="ghostButton" type="button" data-i18n data-zh="打开文件夹" data-en="Open Folder">打开文件夹</button>
+              <button class="ghostButton" type="button" data-i18n data-zh="刷新" data-en="Refresh">刷新</button>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const frameState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded"
+    };
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+
+    /**
+     * 从地址参数中提取当前页面语言、主题与侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        frameState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        frameState.currentTheme = "light";
+      }
+
+      frameState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = frameState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", frameState.currentTheme === "light");
+      document.documentElement.lang = frameState.currentLanguage === "zh" ? "zh-CN" : "en";
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = frameState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", frameState.currentLanguage);
+        linkUrl.searchParams.set("theme", frameState.currentTheme);
+        linkUrl.searchParams.set("sidebar", frameState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    syncQueryLinks();
+  </script>
+</body>
+</html>

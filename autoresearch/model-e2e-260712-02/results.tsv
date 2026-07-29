@@ -1,0 +1,3 @@
+model	runtime	endpoint	result	evidence	limitations
+omnicoder-9b	vLLM 0.23	http://192.168.31.55:33050/v1/chat/completions	PASS	HTTP 200; generated is_prime passed 8 sandboxed assertions	Cold start about 4 minutes on first compile
+locateanything-3b	PyTorch 25.04 + Transformers 4.57.1	http://192.168.31.55:33060/v1/ground	PASS	HTTP 200; slow and hybrid returned correct Status READY box	Non-commercial NVIDIA license; ARM64 image input only, no decord video support

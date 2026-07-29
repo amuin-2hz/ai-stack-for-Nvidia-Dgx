@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>runtime</title>
+  <link rel="stylesheet" href="../style/runtime.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./tasks.html">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </a>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <section class="homeBanner">
+          <div class="homeBannerInner">
+            <span class="homeBannerEyebrow">AMUIN AI STACK</span>
+            <h1 data-i18n data-zh="运行时" data-en="Runtime">运行时</h1>
+            <p data-i18n data-zh="统一管理本地推理引擎，选择不同运行时以适配部署、测试与调优场景。" data-en="Manage local inference engines and choose the right runtime for deployment, testing, and tuning.">统一管理本地推理引擎，选择不同运行时以适配部署、测试与调优场景。</p>
+          </div>
+          <div class="homeBannerDecor"></div>
+          <span class="runtimeBannerMeta" data-i18n data-zh="共 3 个运行容器，支持快速查看与配置" data-en="3 runtime containers with quick view and config">共 3 个运行容器，支持快速查看与配置</span>
+        </section>
+
+        <section class="runtimeBoard">
+          <div class="runtimeGrid">
+            <article class="runtimeCard">
+              <div class="runtimeCardHeader">
+                <h3>vLLM</h3>
+                <div class="runtimeTagGrid">
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="版本" data-en="Version">版本</span>
+                    <strong>v0.8.5</strong>
+                  </div>
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="准备状态" data-en="Ready Status">准备状态</span>
+                    <strong class="runtimeReadyState isReady">
+                      <span class="runtimeReadyIcon">√</span>
+                      <span data-i18n data-zh="已准备好" data-en="Ready">已准备好</span>
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="runtimeActionRow">
+                <div class="runtimeActionMain">
+                  <button class="runtimeIconButton" type="button" aria-label="拉取镜像">
+                    <span class="runtimeButtonGlyph isDownload" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="启动">
+                    <span class="runtimeButtonGlyph isLaunch" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="查看日志">
+                    <span class="runtimeButtonGlyph isLog" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeGhostButton runtimeDetailButton" type="button" data-runtime-name="vLLM" data-runtime-container="vllm-service" data-runtime-image="vllm/vllm-openai:latest" data-runtime-version="vLLM: v0.8.5" data-i18n data-zh="详情" data-en="Details">详情</button>
+                  <button class="runtimeConfigButton" type="button" data-runtime-name="vLLM" data-runtime-container="vllm-service" data-runtime-port="30000" data-runtime-resident="常驻" data-runtime-restart="always" aria-label="配置运行时">⚙</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="runtimeCard">
+              <div class="runtimeCardHeader">
+                <h3>TensorRT-LLM</h3>
+                <div class="runtimeTagGrid">
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="版本" data-en="Version">版本</span>
+                    <strong>v1.2.0-rc6</strong>
+                  </div>
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="准备状态" data-en="Ready Status">准备状态</span>
+                    <div class="runtimeStatusList">
+                      <strong class="runtimeReadyState isError">
+                        <span class="runtimeReadyIcon">×</span>
+                        <span data-i18n data-zh="未拉取镜像" data-en="Image Missing">未拉取镜像</span>
+                      </strong>
+                      <strong class="runtimeReadyState isWarning">
+                        <span class="runtimeReadyIcon"></span>
+                        <span data-i18n data-zh="未测试" data-en="Untested">未测试</span>
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="runtimeActionRow">
+                <div class="runtimeActionMain">
+                  <button class="runtimeIconButton" type="button" aria-label="拉取镜像">
+                    <span class="runtimeButtonGlyph isDownload" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="启动">
+                    <span class="runtimeButtonGlyph isLaunch" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="查看日志">
+                    <span class="runtimeButtonGlyph isLog" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeGhostButton runtimeDetailButton" type="button" data-runtime-name="TensorRT-LLM" data-runtime-container="trtllm-service" data-runtime-image="nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc6" data-runtime-version="TensorRT-LLM: v1.2.0-rc6" data-i18n data-zh="详情" data-en="Details">详情</button>
+                  <button class="runtimeConfigButton" type="button" data-runtime-name="TensorRT-LLM" data-runtime-container="trtllm-service" data-runtime-port="31000" data-runtime-resident="仅一次" data-runtime-restart="unless-stopped" aria-label="配置运行时">⚙</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="runtimeCard">
+              <div class="runtimeCardHeader">
+                <h3>PyTorch</h3>
+                <div class="runtimeTagGrid">
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="版本" data-en="Version">版本</span>
+                    <strong>2.x (NVIDIA 25.04)</strong>
+                  </div>
+                  <div class="runtimeInfoTag">
+                    <span class="runtimeInfoTagLabel" data-i18n data-zh="准备状态" data-en="Ready Status">准备状态</span>
+                    <strong class="runtimeReadyState isReady">
+                      <span class="runtimeReadyIcon">√</span>
+                      <span data-i18n data-zh="已准备好" data-en="Ready">已准备好</span>
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="runtimeActionRow">
+                <div class="runtimeActionMain">
+                  <button class="runtimeIconButton" type="button" aria-label="拉取镜像">
+                    <span class="runtimeButtonGlyph isDownload" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="启动">
+                    <span class="runtimeButtonGlyph isLaunch" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeIconButton" type="button" aria-label="查看日志">
+                    <span class="runtimeButtonGlyph isLog" aria-hidden="true"></span>
+                  </button>
+                  <button class="runtimeGhostButton runtimeDetailButton" type="button" data-runtime-name="PyTorch" data-runtime-container="pytorch-service" data-runtime-image="nvcr.io/nvidia/pytorch:25.04-py3" data-runtime-version="PyTorch: 2.x (NVIDIA 25.04)" data-i18n data-zh="详情" data-en="Details">详情</button>
+                  <button class="runtimeConfigButton" type="button" data-runtime-name="PyTorch" data-runtime-container="pytorch-service" data-runtime-port="32000" data-runtime-resident="常驻" data-runtime-restart="always" aria-label="配置运行时">⚙</button>
+                </div>
+              </div>
+            </article>
+
+            <button class="runtimeCreateCard" id="runtimeCreateButton" type="button">
+              <span class="runtimeCreatePlus">+</span>
+              <strong data-i18n data-zh="点击新建运行时" data-en="Create Runtime">点击新建运行时</strong>
+            </button>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="runtimeModalOverlay" id="runtimeModalOverlay" hidden>
+    <section class="runtimeModal" role="dialog" aria-modal="true" aria-labelledby="runtimeModalTitle">
+      <div class="runtimeModalHeader">
+        <div>
+          <span class="runtimeModalEyebrow">AMUIN AI STACK</span>
+          <h2 id="runtimeModalTitle" data-i18n data-zh="新建运行时" data-en="Create Runtime">新建运行时</h2>
+        </div>
+        <button class="runtimeModalClose" id="runtimeModalCloseButton" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="runtimeModalTabBar">
+        <button class="runtimeModalTabButton isActive" id="componentTabButton" type="button" data-tab-target="componentPanel" data-i18n data-zh="大模型组件" data-en="LLM Component">大模型组件</button>
+        <button class="runtimeModalTabButton" id="composeTabButton" type="button" data-tab-target="composePanel" data-i18n data-zh="Docker Compose" data-en="Docker Compose">Docker Compose</button>
+      </div>
+
+      <div class="runtimeModalBody">
+        <section class="runtimeModalPanel isActive" id="componentPanel">
+          <div class="runtimeOptionGrid">
+            <button class="runtimeOptionCard isSelected" type="button">
+              <span class="runtimeOptionBadge">GPU</span>
+              <strong>vLLM</strong>
+              <p data-i18n data-zh="适合高吞吐文本推理，快速接入 OpenAI 兼容接口。" data-en="Suitable for high-throughput text inference with OpenAI-compatible APIs.">适合高吞吐文本推理，快速接入 OpenAI 兼容接口。</p>
+            </button>
+            <button class="runtimeOptionCard" type="button">
+              <span class="runtimeOptionBadge">NVIDIA</span>
+              <strong>TensorRT-LLM</strong>
+              <p data-i18n data-zh="适合需要低延迟与高性能部署的 GPU 场景。" data-en="Suitable for low-latency and high-performance GPU deployment.">适合需要低延迟与高性能部署的 GPU 场景。</p>
+            </button>
+            <button class="runtimeOptionCard" type="button">
+              <span class="runtimeOptionBadge">Flexible</span>
+              <strong>PyTorch</strong>
+              <p data-i18n data-zh="适合自定义推理、实验验证与本地调试。" data-en="Suitable for custom inference, experiments, and local debugging.">适合自定义推理、实验验证与本地调试。</p>
+            </button>
+          </div>
+
+          <div class="runtimeFormGrid">
+            <label class="runtimeField">
+              <span data-i18n data-zh="实例名称" data-en="Instance Name">实例名称</span>
+              <input type="text" value="runtime-vllm-01">
+            </label>
+            <label class="runtimeField">
+              <span data-i18n data-zh="监听端口" data-en="Port">监听端口</span>
+              <input type="text" value="8000">
+            </label>
+          </div>
+        </section>
+
+        <section class="runtimeModalPanel" id="composePanel">
+          <label class="runtimeField runtimeTextareaField">
+            <span data-i18n data-zh="Docker Compose 文件" data-en="Docker Compose File">Docker Compose 文件</span>
+            <textarea spellcheck="false">services:
+  llm-runtime:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models
+    command: >
+      --model /models/Qwen
+      --served-model-name qwen</textarea>
+          </label>
+        </section>
+      </div>
+
+      <div class="runtimeModalFooter">
+        <button class="runtimeGhostButton" id="runtimeModalCancelButton" type="button" data-i18n data-zh="取消" data-en="Cancel">取消</button>
+        <button class="runtimePrimaryButton" type="button" data-i18n data-zh="创建运行时" data-en="Create Runtime">创建运行时</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="runtimeModalOverlay" id="runtimeDetailModalOverlay" hidden>
+    <section class="runtimeConfigModal runtimeDetailModal" role="dialog" aria-modal="true" aria-labelledby="runtimeDetailModalTitle">
+      <div class="runtimeModalHeader">
+        <div>
+          <span class="runtimeModalEyebrow">AMUIN AI STACK</span>
+          <h2 id="runtimeDetailModalTitle" data-i18n data-zh="运行时详情" data-en="Runtime Details">运行时详情</h2>
+        </div>
+        <button class="runtimeModalClose" id="runtimeDetailCloseButton" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="runtimeConfigBody">
+        <div class="runtimeConfigInfo">
+          <span data-i18n data-zh="当前运行时" data-en="Current Runtime">当前运行时</span>
+          <strong id="runtimeDetailName">vLLM</strong>
+        </div>
+        <div class="runtimeDetailGrid">
+          <div class="runtimeDetailItem">
+            <span data-i18n data-zh="容器名" data-en="Container">容器名</span>
+            <strong id="runtimeDetailContainer">vllm-service</strong>
+          </div>
+          <div class="runtimeDetailItem">
+            <span data-i18n data-zh="镜像" data-en="Image">镜像</span>
+            <strong id="runtimeDetailImage">vllm/vllm-openai:latest</strong>
+          </div>
+          <div class="runtimeDetailItem runtimeDetailItemWide">
+            <span data-i18n data-zh="软件版本" data-en="Software Version">软件版本</span>
+            <strong id="runtimeDetailVersion">vLLM: v0.8.5</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="runtimeModalFooter">
+        <button class="runtimeGhostButton" id="runtimeDetailCloseFooterButton" type="button" data-i18n data-zh="关闭" data-en="Close">关闭</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="runtimeModalOverlay" id="runtimeConfigModalOverlay" hidden>
+    <section class="runtimeConfigModal" role="dialog" aria-modal="true" aria-labelledby="runtimeConfigModalTitle">
+      <div class="runtimeModalHeader">
+        <div>
+          <span class="runtimeModalEyebrow">AMUIN AI STACK</span>
+          <h2 id="runtimeConfigModalTitle" data-i18n data-zh="运行时配置" data-en="Runtime Settings">运行时配置</h2>
+        </div>
+        <button class="runtimeModalClose" id="runtimeConfigCloseButton" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="runtimeConfigBody">
+        <div class="runtimeConfigInfo">
+          <span data-i18n data-zh="当前运行时" data-en="Current Runtime">当前运行时</span>
+          <strong id="runtimeConfigName">vLLM</strong>
+        </div>
+        <div class="runtimeFormGrid runtimeConfigGrid">
+          <label class="runtimeField">
+            <span data-i18n data-zh="容器名" data-en="Container">容器名</span>
+            <input id="runtimeConfigContainerInput" type="text" value="vllm-service">
+          </label>
+          <label class="runtimeField">
+            <span data-i18n data-zh="端口" data-en="Port">端口</span>
+            <input id="runtimeConfigPortInput" type="text" value="30000">
+          </label>
+          <label class="runtimeField">
+            <span data-i18n data-zh="常驻状态" data-en="Resident State">常驻状态</span>
+            <select id="runtimeConfigResidentSelect">
+              <option value="常驻" data-i18n-option-zh="常驻" data-i18n-option-en="Resident">常驻</option>
+              <option value="仅一次" data-i18n-option-zh="仅一次" data-i18n-option-en="Run Once">仅一次</option>
+            </select>
+          </label>
+          <label class="runtimeField">
+            <span data-i18n data-zh="重启策略" data-en="Restart Policy">重启策略</span>
+            <select id="runtimeConfigRestartSelect">
+              <option value="always">always</option>
+              <option value="unless-stopped">unless-stopped</option>
+              <option value="no">no</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="runtimeModalFooter">
+        <button class="runtimeGhostButton" id="runtimeConfigCancelButton" type="button" data-i18n data-zh="取消" data-en="Cancel">取消</button>
+        <button class="runtimePrimaryButton" type="button" data-i18n data-zh="保存配置" data-en="Save Settings">保存配置</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const frameState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentRuntimeTab: "componentPanel"
+    };
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+    const runtimeCreateButton = document.getElementById("runtimeCreateButton");
+    const runtimeModalOverlay = document.getElementById("runtimeModalOverlay");
+    const runtimeModalCloseButton = document.getElementById("runtimeModalCloseButton");
+    const runtimeModalCancelButton = document.getElementById("runtimeModalCancelButton");
+    const runtimeTabButtonNodeList = document.querySelectorAll(".runtimeModalTabButton");
+    const runtimePanelNodeList = document.querySelectorAll(".runtimeModalPanel");
+    const runtimeDetailButtonNodeList = document.querySelectorAll(".runtimeDetailButton");
+    const runtimeDetailModalOverlay = document.getElementById("runtimeDetailModalOverlay");
+    const runtimeDetailCloseButton = document.getElementById("runtimeDetailCloseButton");
+    const runtimeDetailCloseFooterButton = document.getElementById("runtimeDetailCloseFooterButton");
+    const runtimeDetailName = document.getElementById("runtimeDetailName");
+    const runtimeDetailContainer = document.getElementById("runtimeDetailContainer");
+    const runtimeDetailImage = document.getElementById("runtimeDetailImage");
+    const runtimeDetailVersion = document.getElementById("runtimeDetailVersion");
+    const runtimeConfigButtonNodeList = document.querySelectorAll(".runtimeConfigButton");
+    const runtimeConfigModalOverlay = document.getElementById("runtimeConfigModalOverlay");
+    const runtimeConfigCloseButton = document.getElementById("runtimeConfigCloseButton");
+    const runtimeConfigCancelButton = document.getElementById("runtimeConfigCancelButton");
+    const runtimeConfigName = document.getElementById("runtimeConfigName");
+    const runtimeConfigContainerInput = document.getElementById("runtimeConfigContainerInput");
+    const runtimeConfigPortInput = document.getElementById("runtimeConfigPortInput");
+    const runtimeConfigResidentSelect = document.getElementById("runtimeConfigResidentSelect");
+    const runtimeConfigRestartSelect = document.getElementById("runtimeConfigRestartSelect");
+
+    /**
+     * 从地址参数中提取当前页面语言、主题与侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        frameState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        frameState.currentTheme = "light";
+      }
+
+      frameState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = frameState.currentLanguage === "zh" ? "zh" : "en";
+      const optionNodeList = document.querySelectorAll("[data-i18n-option-zh]");
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+
+      optionNodeList.forEach((optionItem) => {
+        const textValue = optionItem.dataset[`i18nOption${languageKey === "zh" ? "Zh" : "En"}`];
+
+        if (textValue) {
+          optionItem.textContent = textValue;
+        }
+      });
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", frameState.currentTheme === "light");
+      document.documentElement.lang = frameState.currentLanguage === "zh" ? "zh-CN" : "en";
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = frameState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 根据当前激活页签刷新弹窗内的 tab 与内容面板状态。
+     */
+    function refreshRuntimeTabs() {
+      runtimeTabButtonNodeList.forEach((buttonItem) => {
+        const isActive = buttonItem.dataset.tabTarget === frameState.currentRuntimeTab;
+
+        buttonItem.classList.toggle("isActive", isActive);
+        buttonItem.setAttribute("aria-selected", String(isActive));
+      });
+
+      runtimePanelNodeList.forEach((panelItem) => {
+        panelItem.classList.toggle("isActive", panelItem.id === frameState.currentRuntimeTab);
+      });
+    }
+
+    /**
+     * 打开新建运行时弹窗。
+     */
+    function openRuntimeModal() {
+      runtimeModalOverlay.hidden = false;
+      updateBodyModalState();
+      refreshRuntimeTabs();
+    }
+
+    /**
+     * 关闭新建运行时弹窗。
+     */
+    function closeRuntimeModal() {
+      runtimeModalOverlay.hidden = true;
+      updateBodyModalState();
+    }
+
+    /**
+     * 切换新建运行时弹窗中的 tab 页签。
+     */
+    function switchRuntimeTab(event) {
+      const targetButton = event.currentTarget;
+      const targetPanelId = targetButton.dataset.tabTarget;
+
+      frameState.currentRuntimeTab = targetPanelId;
+      refreshRuntimeTabs();
+    }
+
+    /**
+     * 根据当前弹窗的可见状态更新页面锁定状态。
+     */
+    function updateBodyModalState() {
+      const hasVisibleModal = !runtimeModalOverlay.hidden || !runtimeDetailModalOverlay.hidden || !runtimeConfigModalOverlay.hidden;
+
+      document.body.classList.toggle("isModalOpen", hasVisibleModal);
+    }
+
+    /**
+     * 打开运行时详情弹窗，并写入当前运行时摘要信息。
+     */
+    function openRuntimeDetailModal(event) {
+      const targetButton = event.currentTarget;
+
+      runtimeDetailName.textContent = targetButton.dataset.runtimeName;
+      runtimeDetailContainer.textContent = targetButton.dataset.runtimeContainer;
+      runtimeDetailImage.textContent = targetButton.dataset.runtimeImage;
+      runtimeDetailVersion.textContent = targetButton.dataset.runtimeVersion;
+      runtimeDetailModalOverlay.hidden = false;
+      updateBodyModalState();
+    }
+
+    /**
+     * 关闭运行时详情弹窗。
+     */
+    function closeRuntimeDetailModal() {
+      runtimeDetailModalOverlay.hidden = true;
+      updateBodyModalState();
+    }
+
+    /**
+     * 打开运行时端口配置弹窗，并写入当前运行时信息。
+     */
+    function openRuntimeConfigModal(event) {
+      const targetButton = event.currentTarget;
+
+      runtimeConfigName.textContent = targetButton.dataset.runtimeName;
+      runtimeConfigContainerInput.value = targetButton.dataset.runtimeContainer;
+      runtimeConfigPortInput.value = targetButton.dataset.runtimePort;
+      runtimeConfigResidentSelect.value = targetButton.dataset.runtimeResident;
+      runtimeConfigRestartSelect.value = targetButton.dataset.runtimeRestart;
+      runtimeConfigModalOverlay.hidden = false;
+      updateBodyModalState();
+    }
+
+    /**
+     * 关闭运行时端口配置弹窗。
+     */
+    function closeRuntimeConfigModal() {
+      runtimeConfigModalOverlay.hidden = true;
+      updateBodyModalState();
+    }
+
+    /**
+     * 绑定新建运行时弹窗相关交互事件。
+     */
+    function bindRuntimeModalEvents() {
+      runtimeCreateButton.addEventListener("click", openRuntimeModal);
+      runtimeModalCloseButton.addEventListener("click", closeRuntimeModal);
+      runtimeModalCancelButton.addEventListener("click", closeRuntimeModal);
+
+      runtimeTabButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", switchRuntimeTab);
+      });
+
+      runtimeModalOverlay.addEventListener("click", (event) => {
+        if (event.target === runtimeModalOverlay) {
+          closeRuntimeModal();
+        }
+      });
+
+      runtimeDetailButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", openRuntimeDetailModal);
+      });
+
+      runtimeDetailCloseButton.addEventListener("click", closeRuntimeDetailModal);
+      runtimeDetailCloseFooterButton.addEventListener("click", closeRuntimeDetailModal);
+
+      runtimeDetailModalOverlay.addEventListener("click", (event) => {
+        if (event.target === runtimeDetailModalOverlay) {
+          closeRuntimeDetailModal();
+        }
+      });
+
+      runtimeConfigButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", openRuntimeConfigModal);
+      });
+
+      runtimeConfigCloseButton.addEventListener("click", closeRuntimeConfigModal);
+      runtimeConfigCancelButton.addEventListener("click", closeRuntimeConfigModal);
+
+      runtimeConfigModalOverlay.addEventListener("click", (event) => {
+        if (event.target === runtimeConfigModalOverlay) {
+          closeRuntimeConfigModal();
+        }
+      });
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", frameState.currentLanguage);
+        linkUrl.searchParams.set("theme", frameState.currentTheme);
+        linkUrl.searchParams.set("sidebar", frameState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    refreshRuntimeTabs();
+    syncQueryLinks();
+    bindRuntimeModalEvents();
+  </script>
+</body>
+</html>

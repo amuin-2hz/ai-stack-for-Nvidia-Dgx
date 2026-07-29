@@ -1,12 +1,23 @@
-import type { ActiveDeploymentRecord } from "./types.js";
+import { readFile } from "node:fs/promises";
+import type { ActiveDeploymentRecord, DeploymentSuite, ServiceType } from "./types.js";
 import { listDeployments } from "./modelRegistry.js";
 import { listContainers } from "./containerManager.js";
+import { runCommand } from "./utils.js";
+import {
+  deploymentInstanceId,
+  healthUrl,
+  publicBaseUrl
+} from "./runtimePlan.js";
 import {
   listContainerConfigs,
   listActiveDeployments,
   getActiveDeployment,
   deleteDeployment,
+  upsertDeployment,
+  listTasks,
+  getTask,
 } from "./store.js";
+import { parseComposeRuntimeDeclaration } from "./composeRuntimeMetadata.js";
 
 export interface DeploymentHelpersDeps {
   modelsRoot: string;
@@ -83,18 +94,124 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     );
   }
 
+  async function deploymentSuiteForTask(taskId?: string): Promise<DeploymentSuite | undefined> {
+    if (!taskId) return undefined;
+    const task = getTask(taskId);
+    const metadata = task?.metadata ?? {};
+    if (metadata.suite && typeof metadata.suite === "object") return metadata.suite as DeploymentSuite;
+    const composePath = String(metadata.compose_yaml_path ?? "").trim();
+    if (!composePath) return undefined;
+    try {
+      return parseComposeRuntimeDeclaration(await readFile(composePath, "utf-8")) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async function liveActiveDeployments(): Promise<ActiveDeploymentRecord[]> {
     const active = listActiveDeployments();
-    const live: ActiveDeploymentRecord[] = [];
+    const liveByContainer = new Map<string, ActiveDeploymentRecord>();
     for (const deployment of active) {
-      const normalized = normalizeDeployment(deployment);
-      if (await deploymentContainerIsRunning(normalized.container_name)) {
-        live.push(normalized);
-      } else {
-        deleteDeployment(normalized.deployment_id);
+      const baseDeployment = normalizeDeployment(deployment);
+      const normalized = { ...baseDeployment, suite: baseDeployment.suite ?? await deploymentSuiteForTask(baseDeployment.task_id) };
+      if (!(await deploymentContainerIsRunning(normalized.container_name))) {
+        upsertDeployment({ ...normalized, status: "stopped", updated_at: new Date().toISOString() });
+        continue;
       }
+      const ready = await runtimeIsReady(normalized.health_url, normalized.base_url, normalized.openai_model, normalized.service_type, normalized.runtime);
+      const current = { ...normalized, status: ready ? "running" : "loading", updated_at: new Date().toISOString() };
+      upsertDeployment(current);
+      const key = current.runtime === "qwen3-tts"
+        ? current.deployment_id
+        : current.container_name || current.deployment_id;
+      const existing = liveByContainer.get(key);
+      if (!existing) { liveByContainer.set(key, current); continue; }
+      const preferCurrent = current.deployment_id.startsWith("svc_") && !existing.deployment_id.startsWith("svc_");
+      const kept = preferCurrent ? current : existing;
+      const removed = preferCurrent ? existing : current;
+      if (removed.deployment_id !== kept.deployment_id) deleteDeployment(removed.deployment_id);
+      liveByContainer.set(key, kept);
+    }
+    const live = [...liveByContainer.values()];
+    const discovered = [
+      ...(await recoverCustomProfileDeployments()),
+      ...(await discoverDockerRuntimeDeployments())
+    ];
+    const knownIds = new Set(live.map((deployment) => deployment.deployment_id));
+    const knownContainers = new Set(live.map((deployment) => deployment.container_name).filter(Boolean));
+    for (const deployment of discovered) {
+      if (knownIds.has(deployment.deployment_id) || knownContainers.has(deployment.container_name)) continue;
+      live.push(deployment);
     }
     return live;
+  }
+
+  async function recoverCustomProfileDeployments(): Promise<ActiveDeploymentRecord[]> {
+    const containerPayload = await listContainers();
+    const runningNames = new Set(containerPayload.containers
+      .filter((container) => container.state === "running")
+      .flatMap((container) => [container.name, container.instance_name].filter(Boolean) as string[]));
+    const recovered = new Map<string, ActiveDeploymentRecord>();
+    for (const task of listTasks()) {
+      const metadata = task.metadata ?? {};
+      if (task.status !== "succeeded" || metadata.action !== "start_custom_profile") continue;
+      const containerName = String(metadata.container_name ?? metadata.name ?? "");
+      if (!containerName || !runningNames.has(containerName) || recovered.has(containerName)) continue;
+      const modelId = String(metadata.model_id ?? metadata.openai_model ?? "").trim();
+      if (!modelId) continue;
+      const openaiModel = String(metadata.openai_model ?? modelId).trim();
+      const profileId = String(metadata.profile_id ?? "custom");
+      const suite = await deploymentSuiteForTask(task.id);
+      const plan = (metadata.runtime_plan ?? {}) as Record<string, unknown>;
+      const rawBaseUrl = String(plan.base_url ?? "").replace(/\/$/, "");
+      const publicPort = Number(rawBaseUrl.match(/:(\d+)(?:\/|$)/)?.[1] ?? 0);
+      if (!rawBaseUrl || !Number.isFinite(publicPort) || publicPort <= 0) continue;
+      const serviceType: ServiceType = profileId.startsWith("vllm-") ? "vllm" : "pytorch";
+      const baseUrl = serviceType === "vllm" ? rawBaseUrl.replace(/\/v1$/, "") + "/v1" : rawBaseUrl;
+      const healthUrlValue = String(plan.health_url ?? (rawBaseUrl + (serviceType === "vllm" ? "/health" : "/healthz")));
+      const ready = await runtimeIsReady(healthUrlValue, baseUrl, openaiModel, serviceType, profileId);
+      const deployment: ActiveDeploymentRecord = {
+        deployment_id: suite ? "custom-profile:" + profileId + ":suite" : "custom-profile:" + profileId + ":" + openaiModel,
+        model_id: modelId,
+        service_type: serviceType,
+        runtime: profileId,
+        container_name: containerName,
+        public_port: publicPort,
+        base_url: baseUrl,
+        health_url: healthUrlValue,
+        worker_endpoint: baseUrl,
+        openai_model: openaiModel,
+        status: ready ? "running" : "loading",
+        task_id: task.id,
+        updated_at: new Date().toISOString(),
+        suite
+      };
+      upsertDeployment(deployment);
+      recovered.set(containerName, deployment);
+    }
+    return [...recovered.values()];
+  }
+
+  async function discoverDockerRuntimeDeployments(): Promise<ActiveDeploymentRecord[]> {
+    const ps = await runCommand(
+      "docker",
+      ["ps", "--filter", "label=amuin.role=model-runtime", "--format", "{{.Names}}"],
+      5000
+    );
+    if (!ps.ok || !ps.stdout.trim()) return [];
+    const names = ps.stdout.split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+    if (!names.length) return [];
+    const inspected = await runCommand("docker", ["inspect", ...names], 8000);
+    if (!inspected.ok || !inspected.stdout.trim()) return [];
+    let containers: any[] = [];
+    try {
+      const parsed = JSON.parse(inspected.stdout);
+      containers = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+    const deployments = await Promise.all(containers.map(containerToDeployment));
+    return deployments.filter((deployment): deployment is ActiveDeploymentRecord => Boolean(deployment));
   }
 
   function mergeDeployments(
@@ -117,8 +234,9 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         base_url: normalized.base_url,
         health_url: normalized.health_url,
         worker_endpoint: normalized.worker_endpoint,
-        openai_models: [normalized.openai_model],
-        warnings: [] as string[]
+        openai_models: normalized.suite?.components.map((component) => component.model_id) ?? [normalized.openai_model],
+        warnings: [] as string[],
+        suite: normalized.suite
       });
     }
     return [...byId.values()];
@@ -132,6 +250,10 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         return normalized;
       deleteDeployment(normalized.deployment_id);
     }
+    const discovered = (await discoverDockerRuntimeDeployments()).find(
+      (item) => item.deployment_id === deploymentId
+    );
+    if (discovered) return discovered;
     const deployment = (await configuredDeployments()).find(
       (item) => item.deployment_id === deploymentId
     );
@@ -165,6 +287,92 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         "http://127.0.0.1:31000/v1"
       );
     return null;
+  }
+
+  async function containerToDeployment(container: any): Promise<ActiveDeploymentRecord | null> {
+    const labels = container?.Config?.Labels ?? {};
+    const serviceType = runtimeLabelToServiceType(labels["amuin.runtime"]);
+    const modelId = String(labels["amuin.model"] ?? "").trim();
+    if (!serviceType || !modelId) return null;
+    const hostPort = Number(container?.NetworkSettings?.Ports?.["8000/tcp"]?.[0]?.HostPort);
+    if (!Number.isFinite(hostPort) || hostPort <= 0) return null;
+    const args = Array.isArray(container?.Args) ? container.Args.map(String) : [];
+    const openaiModel = servedModelNameFromArgs(args) || modelId;
+    const containerName = String(container?.Name ?? "").replace(/^\//, "") || deploymentInstanceId(serviceType, modelId, openaiModel);
+    const now = new Date().toISOString();
+    const base_url = publicBaseUrl(serviceType, hostPort);
+    const health_url = healthUrl(serviceType, hostPort);
+    const ready = await runtimeIsReady(health_url, base_url, openaiModel, serviceType, serviceType);
+    const deployment: ActiveDeploymentRecord = {
+      deployment_id: deploymentInstanceId(serviceType, modelId, openaiModel),
+      model_id: modelId,
+      service_type: serviceType,
+      runtime: serviceType,
+      container_name: containerName,
+      public_port: hostPort,
+      base_url,
+      health_url,
+      worker_endpoint: base_url,
+      openai_model: openaiModel,
+      status: ready ? "running" : "loading",
+      updated_at: now
+    };
+    upsertDeployment(deployment);
+    return deployment;
+  }
+
+  async function runtimeIsReady(
+    healthUrlValue: string,
+    baseUrlValue: string,
+    openaiModel: string,
+    serviceType: ServiceType,
+    runtime: string
+  ): Promise<boolean> {
+    const health = await probeUrl(healthUrlValue);
+    if (!health) return false;
+    if (/funasr[-_ ]?gateway/i.test(runtime)) return true;
+    const modelPath = serviceType === "pytorch" ? "/v1/models" : "/models";
+    const models = await fetchRuntimeModels(baseUrlValue.replace(/\/$/, "") + modelPath);
+    return models.includes(openaiModel);
+  }
+
+  async function probeUrl(url: string): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function fetchRuntimeModels(url: string): Promise<string[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!response.ok) return [];
+      const payload = await response.json() as { data?: Array<{ id?: unknown }> };
+      return (payload.data ?? []).map((item) => String(item.id ?? "")).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  function runtimeLabelToServiceType(value: unknown): ServiceType | null {
+    const runtime = String(value ?? "");
+    if (runtime === "vllm" || runtime === "trtllm") return runtime;
+    return null;
+  }
+
+  function servedModelNameFromArgs(args: string[]): string | null {
+    const index = args.indexOf("--served-model-name");
+    if (index < 0) return null;
+    const value = args[index + 1]?.trim();
+    return value || null;
   }
 
   return {

@@ -24,7 +24,10 @@ services:
       - ../../cache/hf:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
     command:
+      - --model
       - /models/${MODEL_ALIAS:-local_model}
       - --served-model-name
       - ${OPENAI_MODEL:-local_model}

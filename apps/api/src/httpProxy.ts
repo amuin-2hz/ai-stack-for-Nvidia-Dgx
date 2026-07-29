@@ -14,7 +14,7 @@ export interface ProxyResult {
 export function proxyHttp(
   method: string,
   url: string,
-  body?: string,
+  body?: string | Buffer,
   headers: Record<string, string> = {}
 ): Promise<ProxyResult> {
   return new Promise((resolve) => {

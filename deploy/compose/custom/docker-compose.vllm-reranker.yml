@@ -1,0 +1,54 @@
+#
+# Custom vLLM reranker profile.
+# Use for qwen3-reranker-8b with the complete local model checkout.
+#
+services:
+  vllm-reranker-service:
+    image: ${VLLM_RERANKER_IMAGE:-local/ai-stack-vllm-reranker:latest}
+    build:
+      context: ../../..
+      dockerfile: deploy/dockerfiles/custom/vllm-reranker.Dockerfile
+      args:
+        VLLM_BASE_IMAGE: ${VLLM_BASE_IMAGE:-vllm/vllm-openai:latest}
+    container_name: custom_vllm_reranker_service
+    labels:
+      - amuin.role=model-runtime
+      - amuin.runtime=vllm
+      - amuin.model=${MODEL_ALIAS:-qwen3-reranker-8b}
+      - amuin.profile=vllm-reranker
+    gpus: all
+    ipc: host
+    ports:
+      - "${AI_STACK_BIND_ADDR:-127.0.0.1}:${VLLM_RERANKER_PUBLIC_PORT:-33020}:8000"
+    restart: ${AI_STACK_RESTART_POLICY:-no}
+    volumes:
+      - ../../../models/${MODEL_ALIAS:-qwen3-reranker-8b}:/models/${MODEL_ALIAS:-qwen3-reranker-8b}:ro
+      - ../../../cache/hf:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    command:
+      - --model
+      - /models/${MODEL_ALIAS:-qwen3-reranker-8b}/models/Qwen3-Reranker-8B
+      - --served-model-name
+      - ${OPENAI_MODEL:-qwen3-reranker-8b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --hf-overrides
+      - '{"architectures":["Qwen3ForSequenceClassification"],"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}'
+      - --chat-template
+      - /workspace/qwen3_reranker_score.jinja
+      - --runner
+      - pooling
+      - --convert
+      - classify
+      - --tensor-parallel-size
+      - ${VLLM_TENSOR_PARALLEL_SIZE:-1}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-8192}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.3}

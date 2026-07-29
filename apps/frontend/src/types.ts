@@ -1,4 +1,10 @@
-export type View = 'dashboard' | 'models' | 'load' | 'running' | 'playground' | 'services' | 'deploy' | 'tasks' | 'settings';
+/**
+ * @author Amuin
+ * @created 2026-06-25
+ * @description 全局类型定义 — 模型、部署、任务、容器、系统检查等核心数据结构。
+ *              Global type definitions for models, deployments, tasks, containers, system checks, etc.
+ */
+export type View = 'dashboard' | 'playground' | 'load' | 'models' | 'services' | 'system' | 'running' | 'deploy' | 'tasks' | 'settings';
 export type Locale = 'zh-CN' | 'en-US';
 export type ThemeMode = 'light' | 'dark';
 export type ServiceType = 'vllm' | 'trtllm' | 'pytorch';
@@ -11,7 +17,8 @@ export type ModelGpuMemoryAudit = { status: string; required_bytes?: number | nu
 export type ModelRecord = {
   id: string;
   display_name: string;
-  local: { path: string; format: string; size_bytes: number; file_count: number; weight_files?: number; config_files?: string[]; incomplete_files?: string[] };
+  local: { path: string; format: string; architecture?: string | null; quantization?: string | null; size_bytes: number; file_count: number; weight_files?: number; config_files?: string[]; incomplete_files?: string[] };
+  capabilities?: string[];
   runtime: { preferred: string; supported: string[] };
   inference?: { context_length?: { min: number; max: number; default: number; step: number; source: string } };
   compatibility: Record<string, CompatInfo>;
@@ -31,12 +38,26 @@ export type DeploymentRecord = {
   health_url: string;
   openai_models: string[];
   warnings: string[];
+  suite?: DeploymentSuite;
+};
+
+export type DeploymentSuiteComponent = { model_id: string; role: string; required: boolean };
+export type DeploymentSuite = {
+  kind: "suite";
+  title?: string;
+  title_zh?: string;
+  publish_policy: "selected" | "all_ready";
+  load_policy: "lazy" | "eager";
+  card_mode: "grouped" | "individual";
+  health_path?: string;
+  primary_endpoint?: { kind?: string; method?: string; path: string };
+  components: DeploymentSuiteComponent[];
 };
 
 export type RuntimeHint = { runtime: string; status: string; label: string; reason: string };
 export type RuntimePlanStage = { id: string; label: string; detail: string; target?: string };
 export type TaskRuntimePlanStageStatus = 'pending' | 'running' | 'succeeded' | 'failed';
-export type TaskRuntimePlan = { deployment_id?: string; base_url?: string; health_url?: string; stages?: RuntimePlanStage[]; current_stage?: string; stage_statuses?: Record<string, TaskRuntimePlanStageStatus> };
+export type TaskRuntimePlan = { deployment_id?: string; base_url?: string; health_url?: string; stages?: RuntimePlanStage[]; current_stage?: string; progress_percent?: number; stage_statuses?: Record<string, TaskRuntimePlanStageStatus> };
 
 
 export type ModelFileRecord = {
@@ -67,6 +88,21 @@ export type TaskRecord = {
   error?: string;
   progress_percent?: number;
   downloaded_bytes?: number;
+  total_bytes?: number;
+  download_speed_bytes_per_sec?: number;
+  download_log_speed_bytes_per_sec?: number;
+  download_active_file?: string;
+  download_active_file_bytes?: number;
+  download_active_file_total_bytes?: number;
+  download_active_file_percent?: number;
+  download_elapsed?: string;
+  download_eta?: string;
+  download_items_done?: number;
+  download_items_total?: number;
+  download_retry_attempt?: number;
+  download_retry_total?: number;
+  download_error_code?: 'network_unreachable' | 'proxy_unreachable' | 'download_failed';
+  total_bytes_estimated?: boolean;
   target_path?: string;
   model_files?: ModelFileRecord[];
   diagnostic?: TaskDiagnostic;
@@ -100,6 +136,22 @@ export type ContainerRecord = {
   image_pulled?: boolean;
   test_status?: string;
   software_versions?: Record<string, string>;
+  category?: 'system' | 'custom' | 'model-instance';
+  note?: string;
+  suitable_models?: string[];
+};
+
+export type ProxyScope = 'all' | 'huggingface' | 'modelscope';
+
+export type ProxySettings = {
+  enabled: boolean;
+  scope: ProxyScope;
+  http_proxy: string;
+  https_proxy: string;
+  all_proxy: string;
+  no_proxy: string;
+  env_path: string;
+  updated_at: string;
 };
 
 export type NetworkSettings = {
@@ -126,6 +178,7 @@ export type DeviceInfo = {
   memory?: { total_bytes?: number; free_bytes?: number };
   storage?: { available?: boolean; volumes?: Array<{ mount: string; total_bytes: number; used_bytes: number; free_bytes: number; used_percent: number }> };
   gpu?: { available?: boolean; detail?: string; devices?: Array<Record<string, unknown>> };
+  temperatures?: Array<{ label: string; celsius: number; source: string }>;
 };
 
 export type SystemCheck = {
@@ -134,7 +187,16 @@ export type SystemCheck = {
   backend_url: string;
   lan_addresses?: string[];
   workbench?: WorkbenchSettings;
-  service_ports?: Record<string, { port: number; available: boolean }>;
+  service_ports?: Record<string, {
+    port: number;
+    available: boolean;
+    label?: string;
+    source?: 'system' | 'custom';
+    state?: string;
+    container_name?: string;
+    internal_port?: number;
+    protocol?: string;
+  }>;
   docker?: { ok: boolean; detail: string; version?: string; compose_version?: string; container_count?: number; containers?: Array<{ name: string; status: string }> };
   status?: { uptime_seconds?: number; load_average?: number[]; cpu_load_percent?: number };
   device?: DeviceInfo;

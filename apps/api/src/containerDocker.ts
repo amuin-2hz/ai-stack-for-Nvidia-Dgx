@@ -16,6 +16,88 @@ export async function dockerContainers(): Promise<Array<{ name: string; image: s
   }).filter((row) => row.name);
 }
 
+export type DockerCleanupInspect = {
+  Id?: string;
+  Name?: string;
+  Config?: { Labels?: Record<string, string> | null };
+  State?: { Status?: string; Running?: boolean; ExitCode?: number };
+  SizeRw?: number;
+};
+
+export function isManagedFailedContainer(row: DockerCleanupInspect, workspaceRoot: string): boolean {
+  const name = String(row.Name ?? "").replace(/^\//, "");
+  const labels = row.Config?.Labels ?? {};
+  const status = String(row.State?.Status ?? "").toLowerCase();
+  const exitCode = Number(row.State?.ExitCode ?? 0);
+  const failed = status === "dead" || (status === "exited" && exitCode !== 0);
+  const finishedTask = status === "exited" && name.startsWith("ai-stack-task_");
+  const composeRoot = String(labels["com.docker.compose.project.working_dir"] ?? "");
+  const composeFiles = String(labels["com.docker.compose.project.config_files"] ?? "");
+  const managed = Boolean(labels["amuin.role"])
+    || name.startsWith("ai-stack-task_")
+    || composeRoot === workspaceRoot
+    || composeFiles.split(",").some((file) => file.startsWith(workspaceRoot + "/"));
+  return managed && (failed || finishedTask) && row.State?.Running !== true;
+}
+
+export type FailedContainerCleanupResult = {
+  ok: boolean;
+  scanned: number;
+  eligible: number;
+  removed_count: number;
+  reclaimed_bytes: number;
+  removed: Array<{ id: string; name: string; exit_code: number; size_rw_bytes: number }>;
+  failures: Array<{ id: string; name: string; detail: string }>;
+};
+
+export async function cleanupFailedManagedContainers(workspaceRoot: string): Promise<FailedContainerCleanupResult> {
+  const listed = await runCommand("docker", ["ps", "-aq"], 8000);
+  if (!listed.ok) throw new Error("Unable to list Docker containers: " + (listed.stderr || listed.stdout));
+  const ids = listed.stdout.split("\n").map((id) => id.trim()).filter(Boolean);
+  if (!ids.length) return { ok: true, scanned: 0, eligible: 0, removed_count: 0, reclaimed_bytes: 0, removed: [], failures: [] };
+
+  const inspected = await runCommand(
+    "docker",
+    ["inspect", "--size", ...ids],
+    15_000
+  );
+  if (!inspected.ok) throw new Error("Unable to inspect Docker containers: " + (inspected.stderr || inspected.stdout));
+
+  let rows: DockerCleanupInspect[];
+  try {
+    rows = JSON.parse(inspected.stdout) as DockerCleanupInspect[];
+  } catch {
+    throw new Error("Docker returned invalid container inspection data.");
+  }
+  const candidates = rows.filter((row) => isManagedFailedContainer(row, workspaceRoot));
+  const removed: FailedContainerCleanupResult["removed"] = [];
+  const failures: FailedContainerCleanupResult["failures"] = [];
+  let reclaimedBytes = 0;
+
+  for (const row of candidates) {
+    const id = String(row.Id ?? "");
+    const name = String(row.Name ?? id).replace(/^\//, "");
+    if (!id) continue;
+    const result = await runCommand("docker", ["rm", id], 10_000);
+    if (result.ok) {
+      reclaimedBytes += Math.max(0, Number(row.SizeRw ?? 0));
+      removed.push({ id, name, exit_code: Number(row.State?.ExitCode ?? 0), size_rw_bytes: Math.max(0, Number(row.SizeRw ?? 0)) });
+    } else {
+      failures.push({ id, name, detail: result.stderr || result.stdout || "docker rm failed" });
+    }
+  }
+
+  return {
+    ok: failures.length === 0,
+    scanned: rows.length,
+    eligible: candidates.length,
+    removed_count: removed.length,
+    reclaimed_bytes: reclaimedBytes,
+    removed,
+    failures
+  };
+}
+
 /* ── Image helpers ─────────────────────────────── */
 export async function imageExists(image: string): Promise<boolean> {
   if (!image) return false;

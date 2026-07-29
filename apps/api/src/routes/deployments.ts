@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { readBody, sendJson } from "../serverUtils.js";
-import { getContainerConfig, listActiveDeployments, getActiveDeployment, deleteDeployment } from "../store.js";
+import { getContainerConfig, listActiveDeployments, getActiveDeployment, deleteDeployment, listTasks } from "../store.js";
 import { createDeploymentPlan as buildDeploymentPlan, startDeployment } from "../deploymentManager.js";
 import { compatibilityFor, getModel, listModels } from "../modelRegistry.js";
 import { proxyHttp, parseMaybeJson } from "../httpProxy.js";
@@ -37,13 +38,27 @@ export function register(
     });
   });
 
-  route("GET", "/deployments/:deployment_id/logs", async (_req: any, res: any, params: any) => {
+  route("GET", "/deployments/:deployment_id/logs", async (req: any, res: any, params: any) => {
     const d = await dh.findDeployment(params.deployment_id);
     if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
-    sendJson(res, 501, {
+    const lines = boundedLineCount(req.url);
+    const task = latestDeploymentTask(d);
+    const taskLogs = task?.log_path ? await readTailLines(task.log_path, lines) : null;
+    const dockerLogs = d.container_name ? await runCommand("docker", ["logs", "--tail", String(lines), d.container_name], 10000) : null;
+    const dockerOutput = dockerLogs ? [dockerLogs.stdout, dockerLogs.stderr].filter(Boolean).join("\n") : "";
+    sendJson(res, dockerLogs?.ok || taskLogs !== null ? 200 : 503, {
       deployment_id: d.deployment_id,
-      detail: "Container log streaming is not mounted into the Node API container yet.",
-      suggested_command: d.container_name ? "docker logs --tail 200 " + d.container_name : null
+      service_type: d.service_type,
+      container_name: d.container_name,
+      task_id: task?.id ?? null,
+      log_path: task?.log_path ?? null,
+      source: dockerLogs?.ok ? "docker" : taskLogs !== null ? "task" : "none",
+      logs: dockerLogs?.ok ? dockerOutput : taskLogs ?? "",
+      detail: dockerLogs?.ok
+        ? "Container logs read successfully."
+        : taskLogs !== null
+          ? "Docker logs were unavailable; returned the latest deployment task log."
+          : dockerOutput || "No deployment task log or container log is available yet."
     });
   });
 
@@ -63,7 +78,15 @@ export function register(
   route("POST", "/deployments/:deployment_id/restart", async (_req: any, res: any, params: any) => {
     const d = await dh.findDeployment(params.deployment_id);
     if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
-    sendJson(res, 202, { deployment_id: d.deployment_id, status: "restart_requested", detail: "Runtime restart wiring is scheduled for the deployment manager phase." });
+    if (!d.container_name) return sendJson(res, 400, { detail: "Deployment has no container to restart." });
+    const result = await runCommand("docker", ["restart", d.container_name], 30000);
+    const detail = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    sendJson(res, result.ok ? 200 : 500, {
+      deployment_id: d.deployment_id,
+      container_name: d.container_name,
+      status: result.ok ? "restarted" : "failed",
+      detail: detail || (result.ok ? "Container restarted." : "Container restart failed.")
+    });
   });
 
   route("POST", "/deployments", async (req: any, res: any) => {
@@ -80,6 +103,7 @@ export function register(
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
     if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
     const containerSettings = getContainerConfig(serviceType);
+    await dh.liveActiveDeployments();
     if (body.start) {
       sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
       return;
@@ -101,6 +125,7 @@ export function register(
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
     if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
     const containerSettings = getContainerConfig(serviceType);
+    await dh.liveActiveDeployments();
     const existing = listActiveDeployments().find(
       (d: any) => d.service_type === serviceType && d.model_id === model.id &&
         d.openai_model === (body.openai_model ?? model.id) && d.status === "running"
@@ -114,6 +139,38 @@ export function register(
     }
     sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
   });
+
+function boundedLineCount(rawUrl: string | undefined): number {
+  const value = Number(new URL(rawUrl ?? "/", "http://localhost").searchParams.get("lines") ?? "200");
+  if (!Number.isFinite(value)) return 200;
+  return Math.max(1, Math.min(2000, Math.trunc(value)));
+}
+
+async function readTailLines(path: string, lines: number): Promise<string | null> {
+  try {
+    const body = await readFile(path, "utf-8");
+    return body.split(/\r?\n/).slice(-lines).join("\n");
+  } catch {
+    return null;
+  }
+}
+
+function latestDeploymentTask(deployment: any) {
+  const taskId = typeof deployment.task_id === "string" ? deployment.task_id : "";
+  const tasks = listTasks();
+  if (taskId) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (task) return task;
+  }
+  return tasks.find((task) =>
+    task.type === "deploy" &&
+    (
+      task.metadata?.deployment_id === deployment.deployment_id ||
+      task.metadata?.service_type === deployment.service_type ||
+      task.metadata?.model_id === deployment.model_id
+    )
+  );
+}
 
 function deploymentBlocker(model: ModelRecord, serviceType: ServiceType, blockMemory: boolean) {
   const compat = compatibilityFor(model, serviceType);

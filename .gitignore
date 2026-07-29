@@ -11,6 +11,7 @@ logs/
 
 # ===== 临时文件 =====
 tmp/
+playbooks/
 
 # ===== Docker 运行时数据 =====
 volumes/
@@ -23,6 +24,8 @@ dist/
 !apps/main/dist/
 node_modules/
 .next/
+dist-electron/
+THIRD_PARTY_NOTICES.md
 
 # ===== Python =====
 __pycache__/
@@ -37,7 +40,6 @@ venv/
 
 # ===== 个人笔记 =====
 .obsidian/
-.docs/
 
 # ===== 环境变量（敏感信息） =====
 .env
@@ -52,6 +54,12 @@ venv/
 *.swo
 *~
 
+# ===== 归档文件 =====
+*.zip
+
 # ===== 系统文件 =====
 .DS_Store
 Thumbs.db
+.cache/
+.npm-cache/
+*.tsbuildinfo

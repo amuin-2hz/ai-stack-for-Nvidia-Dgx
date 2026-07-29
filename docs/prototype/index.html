@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LM Studio Shell</title>
+  <link rel="stylesheet" href="./style/index.css">
+</head>
+<body>
+  <div class="windowShell">
+    <header class="titleBar">
+      <div class="titleBarLeft"></div>
+      <div class="titleBarCenter">
+        <div class="titleGroup">
+          <span class="titleLogo"></span>
+          <strong>Amuin AI Stack</strong>
+        </div>
+      </div>
+      <div class="titleBarRight">
+        <div class="windowActions">
+          <span class="windowAction">─</span>
+          <span class="windowAction">□</span>
+          <span class="windowAction">✕</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="toolbarStrip">
+      <div class="toolbarLeft">
+        <button class="sidebarDock" id="sidebarToggleButton" type="button" aria-label="侧边栏"></button>
+      </div>
+      <div class="toolbarCenter">
+        <div class="toolbarCenterInner">
+          <div class="modelPicker">
+            <span class="modelPickerIcon"></span>
+            <span class="modelPickerText">选择要加载的模型</span>
+            <span class="modelPickerHint">Ctrl + L</span>
+            <span class="modelPickerArrow">▼</span>
+          </div>
+        </div>
+      </div>
+      <div class="toolbarRight">
+        <div class="toolbarSwitchGroup">
+          <button class="toolbarSwitchButton" id="themeToggleButton" type="button" aria-label="明暗切换">
+            <span class="switchLabel">Dark</span>
+            <span class="switchTrack"><span class="switchThumb"></span></span>
+          </button>
+          <button class="toolbarSwitchButton" id="languageToggleButton" type="button" aria-label="语言切换">
+            <span class="switchLabel">中</span>
+            <span class="switchTrack"><span class="switchThumb"></span></span>
+          </button>
+        </div>
+        <button class="toolbarIconButton" id="downloadsToggleButton" type="button" aria-label="下载面板" aria-expanded="false">
+          <span class="toolbarIcon">⇩</span>
+        </button>
+        <button class="toolbarIconButton" id="rightPanelToggleButton" type="button" aria-label="右侧面板" aria-expanded="true">
+          <span class="toolbarIcon">◧</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="downloadsPane" id="downloadsPane" hidden>
+      <header class="downloadsPaneHeader">
+        <strong>Downloads</strong>
+        <div class="downloadsPaneActions">
+          <button class="downloadsPaneIconButton" type="button" aria-label="复制下载列表">⧉</button>
+          <button class="downloadsPaneIconButton" id="closeDownloadsPaneButton" type="button" aria-label="关闭下载面板">×</button>
+        </div>
+      </header>
+
+      <div class="downloadsPaneBody">
+        <label class="downloadsSearchField">
+          <input id="downloadsFilterInput" type="text" placeholder="Filter downloads..." aria-label="筛选下载">
+        </label>
+
+        <div class="downloadsSectionHead">
+          <span>Completed</span>
+          <button class="downloadsTextButton" id="clearDownloadsFilterButton" type="button">Clear</button>
+        </div>
+
+        <div class="downloadsList" id="downloadsList"></div>
+      </div>
+    </section>
+
+    <iframe class="pageFrame" id="pageFrame" src="./pages/welcome.html?lang=zh&theme=dark&sidebar=expanded&rightPanel=expanded" title="welcome"></iframe>
+  </div>
+
+  <script>
+    const shellState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentRightPanel: "expanded",
+      isDownloadsPaneOpen: false
+    };
+
+    const downloadsRegistry = [
+      {
+        id: "downloadLlama2220",
+        title: "llama.cpp-win-x86_64-nvidia-cuda12-avx2",
+        version: "2.22.0",
+        meta: "Download • 148.48 MB"
+      },
+      {
+        id: "downloadLlama2210",
+        title: "llama.cpp-win-x86_64-nvidia-cuda12-avx2",
+        version: "2.21.0",
+        meta: "Download • 148.46 MB"
+      },
+      {
+        id: "downloadLlama2201",
+        title: "llama.cpp-win-x86_64-nvidia-cuda12-avx2",
+        version: "2.20.1",
+        meta: "Download • 148.41 MB"
+      },
+      {
+        id: "downloadOpenVoice",
+        title: "OpenVoiceOS : Qwen3 Tts 0.6B K M Q4",
+        version: "",
+        meta: "Model • 200.98 MB"
+      },
+      {
+        id: "downloadOmnicoder",
+        title: "Omnicoder 9B Instruct Q4_K_S",
+        version: "",
+        meta: "Model • 4.98 GB"
+      }
+    ];
+
+    const pageFrame = document.getElementById("pageFrame");
+    const themeToggleButton = document.getElementById("themeToggleButton");
+    const languageToggleButton = document.getElementById("languageToggleButton");
+    const sidebarToggleButton = document.getElementById("sidebarToggleButton");
+    const downloadsToggleButton = document.getElementById("downloadsToggleButton");
+    const rightPanelToggleButton = document.getElementById("rightPanelToggleButton");
+    const downloadsPane = document.getElementById("downloadsPane");
+    const closeDownloadsPaneButton = document.getElementById("closeDownloadsPaneButton");
+    const downloadsFilterInput = document.getElementById("downloadsFilterInput");
+    const clearDownloadsFilterButton = document.getElementById("clearDownloadsFilterButton");
+    const downloadsList = document.getElementById("downloadsList");
+
+    /**
+     * 根据当前状态刷新顶部切换按钮文案。
+     */
+    function refreshShellButtons() {
+      const themeLabelNode = themeToggleButton.querySelector(".switchLabel");
+      const languageLabelNode = languageToggleButton.querySelector(".switchLabel");
+      const isLightTheme = shellState.currentTheme === "light";
+      const isEnglishLanguage = shellState.currentLanguage === "en";
+      const isSidebarCollapsed = shellState.currentSidebar === "collapsed";
+      const isRightPanelCollapsed = shellState.currentRightPanel === "collapsed";
+
+      themeLabelNode.textContent = isLightTheme ? "Light" : "Dark";
+      languageLabelNode.textContent = isEnglishLanguage ? "EN" : "中";
+
+      themeToggleButton.classList.toggle("isChecked", isLightTheme);
+      languageToggleButton.classList.toggle("isChecked", isEnglishLanguage);
+      sidebarToggleButton.classList.toggle("isCollapsed", isSidebarCollapsed);
+      rightPanelToggleButton.classList.toggle("isActive", !isRightPanelCollapsed);
+      downloadsToggleButton.classList.toggle("isActive", shellState.isDownloadsPaneOpen);
+      rightPanelToggleButton.querySelector(".toolbarIcon").textContent = isRightPanelCollapsed ? "◨" : "◧";
+
+      themeToggleButton.setAttribute("aria-pressed", String(isLightTheme));
+      languageToggleButton.setAttribute("aria-pressed", String(isEnglishLanguage));
+      sidebarToggleButton.setAttribute("aria-pressed", String(!isSidebarCollapsed));
+      rightPanelToggleButton.setAttribute("aria-expanded", String(!isRightPanelCollapsed));
+      downloadsToggleButton.setAttribute("aria-expanded", String(shellState.isDownloadsPaneOpen));
+    }
+
+    /**
+     * 将当前主题和语言状态同步到 iframe 页面。
+     */
+    function syncFrameQuery() {
+      const frameUrl = new URL(pageFrame.src, window.location.href);
+
+      frameUrl.searchParams.set("lang", shellState.currentLanguage);
+      frameUrl.searchParams.set("theme", shellState.currentTheme);
+      frameUrl.searchParams.set("sidebar", shellState.currentSidebar);
+      frameUrl.searchParams.set("rightPanel", shellState.currentRightPanel);
+
+      document.body.classList.toggle("themeLight", shellState.currentTheme === "light");
+      pageFrame.src = frameUrl.toString();
+      refreshShellButtons();
+    }
+
+    /**
+     * 根据筛选关键词渲染下载列表。
+     */
+    function renderDownloadsList() {
+      const filterValue = downloadsFilterInput.value.trim().toLowerCase();
+
+      downloadsList.innerHTML = "";
+
+      downloadsRegistry
+        .filter((downloadItem) => {
+          const searchText = `${downloadItem.title} ${downloadItem.version} ${downloadItem.meta}`.toLowerCase();
+
+          return !filterValue || searchText.includes(filterValue);
+        })
+        .forEach((downloadItem) => {
+          const downloadRow = document.createElement("article");
+
+          downloadRow.className = "downloadRow";
+          downloadRow.innerHTML = `
+            <div class="downloadRowGlyph">⚙</div>
+            <div class="downloadRowMain">
+              <strong>${downloadItem.title}${downloadItem.version ? ` (${downloadItem.version})` : ""}</strong>
+              <span>${downloadItem.meta}</span>
+            </div>
+            <div class="downloadRowActions">
+              <button class="downloadRowActionButton" type="button" aria-label="打开目录">⊡</button>
+              <button class="downloadRowActionButton" type="button" aria-label="更多">⋮</button>
+            </div>
+          `;
+          downloadsList.appendChild(downloadRow);
+        });
+    }
+
+    /**
+     * 打开下载弹出面板。
+     */
+    function openDownloadsPane() {
+      shellState.isDownloadsPaneOpen = true;
+      downloadsPane.hidden = false;
+      renderDownloadsList();
+      refreshShellButtons();
+      downloadsFilterInput.focus();
+    }
+
+    /**
+     * 关闭下载弹出面板。
+     */
+    function closeDownloadsPane() {
+      shellState.isDownloadsPaneOpen = false;
+      downloadsPane.hidden = true;
+      refreshShellButtons();
+    }
+
+    /**
+     * 切换下载弹出面板显示状态。
+     */
+    function toggleDownloadsPane() {
+      if (shellState.isDownloadsPaneOpen) {
+        closeDownloadsPane();
+        return;
+      }
+
+      openDownloadsPane();
+    }
+
+    /**
+     * 切换根壳层与子页面的明暗模式。
+     */
+    function toggleThemeMode() {
+      shellState.currentTheme = shellState.currentTheme === "dark" ? "light" : "dark";
+      syncFrameQuery();
+    }
+
+    /**
+     * 切换根壳层与子页面的中英文状态。
+     */
+    function toggleLanguageMode() {
+      shellState.currentLanguage = shellState.currentLanguage === "zh" ? "en" : "zh";
+      syncFrameQuery();
+    }
+
+    /**
+     * 切换子页面侧边栏展开与收起状态。
+     */
+    function toggleSidebarMode() {
+      shellState.currentSidebar = shellState.currentSidebar === "collapsed" ? "expanded" : "collapsed";
+      syncFrameQuery();
+    }
+
+    /**
+     * 切换首页右侧任务面板展开与收起状态。
+     */
+    function toggleRightPanelMode() {
+      shellState.currentRightPanel = shellState.currentRightPanel === "collapsed" ? "expanded" : "collapsed";
+      syncFrameQuery();
+    }
+
+    /**
+     * 点击下载面板外部区域时关闭弹层。
+     */
+    function closeDownloadsPaneOnOutsideClick(event) {
+      if (!shellState.isDownloadsPaneOpen) {
+        return;
+      }
+
+      if (downloadsPane.contains(event.target) || downloadsToggleButton.contains(event.target)) {
+        return;
+      }
+
+      closeDownloadsPane();
+    }
+
+    /**
+     * 按下转义键时关闭下载面板。
+     */
+    function closeDownloadsPaneOnEscape(event) {
+      if (event.key === "Escape" && shellState.isDownloadsPaneOpen) {
+        closeDownloadsPane();
+      }
+    }
+
+    themeToggleButton.addEventListener("click", toggleThemeMode);
+    languageToggleButton.addEventListener("click", toggleLanguageMode);
+    sidebarToggleButton.addEventListener("click", toggleSidebarMode);
+    rightPanelToggleButton.addEventListener("click", toggleRightPanelMode);
+    downloadsToggleButton.addEventListener("click", toggleDownloadsPane);
+    closeDownloadsPaneButton.addEventListener("click", closeDownloadsPane);
+    downloadsFilterInput.addEventListener("input", renderDownloadsList);
+    clearDownloadsFilterButton.addEventListener("click", () => {
+      downloadsFilterInput.value = "";
+      renderDownloadsList();
+      downloadsFilterInput.focus();
+    });
+    document.addEventListener("click", closeDownloadsPaneOnOutsideClick);
+    document.addEventListener("keydown", closeDownloadsPaneOnEscape);
+
+    refreshShellButtons();
+    renderDownloadsList();
+  </script>
+</body>
+</html>

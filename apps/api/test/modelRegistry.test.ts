@@ -22,6 +22,30 @@ test("listModels flags HF weights without config.json", async () => {
   }
 });
 
+test("listModels does not offer MLX-packed safetensors to vLLM", async () => {
+  const root = join(tmpdir(), "ai-stack-model-mlx-" + Date.now());
+  const modelDir = join(root, "qwen3.6-35b-a3b-instruct-qx64-hi-mlx");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["Qwen3_5MoeForConditionalGeneration"],
+      model_type: "qwen3_5_moe",
+      quantization: { group_size: 64, bits: 6 }
+    }), "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "mlx_safetensors");
+    assert.equal(models[0].local.quantization, "MLX 6-bit");
+    assert.equal(models[0].runtime.preferred, "mlx");
+    assert.deepEqual(models[0].runtime.supported, ["mlx"]);
+    assert.equal(models[0].compatibility.vllm.status, "unsupported");
+    assert.equal(models[0].status.download, "ready");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("listModels reports download staging directories as incomplete", async () => {
   const root = join(tmpdir(), "ai-stack-model-audit-" + Date.now());
   const modelDir = join(root, "active-download");
@@ -38,6 +62,191 @@ test("listModels reports download staging directories as incomplete", async () =
   }
 });
 
+test("listModels recognizes CAM++ campplus bin as an audio model", async () => {
+  const root = join(tmpdir(), "ai-stack-campplus-audit-" + Date.now());
+  const modelDir = join(root, "speech_campplus_sv_zh-cn_16k-common");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "campplus_cn_common.bin"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.yaml"), "model: campplus", "utf-8");
+    await writeFile(join(modelDir, "configuration.json"), "{}", "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "audio");
+    assert.equal(models[0].local.architecture, "PyTorch");
+    assert.deepEqual(models[0].capabilities, ["speaker-verification"]);
+    assert.equal(models[0].status.download, "ready");
+    assert.equal(models[0].runtime.preferred, "funasr-gateway");
+    assert.equal(models[0].compatibility.pytorch.status, "unsupported");
+    assert.equal(models[0].audit.issues.some((issue) => issue.code === "missing_config"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels keeps speaker diarization separate from ASR", async () => {
+  const root = join(tmpdir(), "ai-stack-diarization-audit-" + Date.now());
+  const modelDir = join(root, "speech_campplus_speaker-diarization_common");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "campplus.onnx"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.yaml"), "model: campplus", "utf-8");
+    await writeFile(join(modelDir, "configuration.json"), "{}", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.deepEqual(models[0].capabilities, ["speaker-diarization"]);
+    assert.equal(models[0].runtime.preferred, "funasr-gateway");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels recommends the dedicated Qwen3-TTS runtime", async () => {
+  const root = join(tmpdir(), "ai-stack-qwen3-tts-audit-" + Date.now());
+  const modelDir = join(root, "qwen3-tts-12hz-1.7b-customvoice");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["Qwen3TTSForConditionalGeneration"],
+      model_type: "qwen3_tts",
+      tts_model_type: "custom_voice"
+    }), "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "qwen3_tts");
+    assert.deepEqual(models[0].capabilities, ["tts"]);
+    assert.equal(models[0].runtime.preferred, "qwen3-tts");
+    assert.deepEqual(models[0].runtime.supported, ["qwen3-tts"]);
+    assert.equal(models[0].compatibility["qwen3-tts"].status, "compatible");
+    assert.equal(models[0].compatibility.pytorch.status, "unsupported");
+    assert.equal(models[0].status.download, "ready");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels marks a complete VibeVoice checkpoint ready for its dedicated runtime", async () => {
+  const root = join(tmpdir(), "ai-stack-vibevoice-audit-" + Date.now());
+  const modelDir = join(root, "vibevoice-asr-hf");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["VibeVoiceAsrForConditionalGeneration"],
+      model_type: "vibevoice_asr"
+    }), "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "vibevoice");
+    assert.deepEqual(models[0].capabilities, ["asr"]);
+    assert.equal(models[0].runtime.preferred, "vibevoice-hf");
+    assert.deepEqual(models[0].runtime.supported, ["vibevoice-hf"]);
+    assert.equal(models[0].compatibility["vibevoice-hf"].status, "compatible");
+    assert.equal(models[0].status.download, "ready");
+    assert.equal(models[0].audit.issues.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels classifies rerankers separately from embeddings", async () => {
+  const root = join(tmpdir(), "ai-stack-reranker-audit-" + Date.now());
+  const modelDir = join(root, "qwen3-reranker-8b");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["Qwen3ForSequenceClassification"],
+      model_type: "qwen3"
+    }), "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.deepEqual(models[0].capabilities, ["reranker"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels classifies Unlimited-OCR as a vision-language model", async () => {
+  const root = join(tmpdir(), "ai-stack-unlimited-ocr-audit-" + Date.now());
+  const modelDir = join(root, "unlimited-ocr");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model-00001-of-000001.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "tokenizer.json"), "{}", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["UnlimitedOCRForCausalLM"],
+      model_type: "unlimited-ocr",
+      vision_config: { model_type: "vision", image_size: 1024 }
+    }), "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.deepEqual(models[0].capabilities, ["chat", "vision"]);
+    assert.equal(models[0].local.format, "hf_safetensors");
+    assert.equal(models[0].status.download, "ready");
+    assert.equal(models[0].audit.issues.some((issue) => issue.code === "unknown_capability"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("listModels recommends the dedicated LocateAnything runtime", async () => {
+  const root = join(tmpdir(), "ai-stack-locate-anything-audit-" + Date.now());
+  const modelDir = join(root, "locateanything-3b");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "model.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "tokenizer_config.json"), "{}", "utf-8");
+    await writeFile(join(modelDir, "config.json"), JSON.stringify({
+      architectures: ["LocateAnythingForConditionalGeneration"],
+      model_type: "locateanything"
+    }), "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "hf_safetensors");
+    assert.deepEqual(models[0].capabilities, ["vision", "visual-grounding"]);
+    assert.equal(models[0].runtime.preferred, "locate-anything");
+    assert.deepEqual(models[0].runtime.supported, ["locate-anything"]);
+    assert.equal(models[0].compatibility["locate-anything"].status, "compatible");
+    assert.equal(models[0].compatibility.vllm.status, "unsupported");
+    assert.equal(models[0].compatibility.trtllm.status, "unsupported");
+    assert.equal(models[0].audit.recommendations[0].runtime, "locate-anything");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("listModels flags missing shards referenced by weight index", async () => {
+  const root = join(tmpdir(), "ai-stack-model-missing-shard-" + Date.now());
+  const modelDir = join(root, "qwen-missing-shard");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "config.json"), "{}", "utf-8");
+    await writeFile(join(modelDir, "model-00002-of-00002.safetensors"), "weights", "utf-8");
+    await writeFile(join(modelDir, "model.safetensors.index.json"), JSON.stringify({
+      metadata: { total_size: 20 },
+      weight_map: {
+        "layers.0.weight": "model-00001-of-00002.safetensors",
+        "layers.1.weight": "model-00002-of-00002.safetensors"
+      }
+    }), "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].status.download, "incomplete");
+    assert.ok(models[0].local.incomplete_files.includes("model-00001-of-00002.safetensors"));
+    assert.ok(models[0].audit.issues.some((issue) => issue.code === "missing_indexed_weight_files"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("parseModelSource handles common Hugging Face and ModelScope URLs", () => {
   assert.deepEqual(parseModelSource("https://huggingface.co/Qwen/Qwen3-Embedding-8B"), {
     provider: "huggingface",
@@ -47,5 +256,13 @@ test("parseModelSource handles common Hugging Face and ModelScope URLs", () => {
     original_url: "https://huggingface.co/Qwen/Qwen3-Embedding-8B"
   });
   assert.equal(parseModelSource("https://modelscope.cn/models/Qwen/Qwen3-Embedding-8B").provider, "modelscope");
+  assert.deepEqual(parseModelSource("https://www.modelscope.cn/models/PaddlePaddle/Unlimited-OCR.git"), {
+    provider: "modelscope",
+    repo_id: "PaddlePaddle/Unlimited-OCR",
+    alias: "unlimited-ocr",
+    target_path: "models/unlimited-ocr",
+    original_url: "https://www.modelscope.cn/models/PaddlePaddle/Unlimited-OCR.git"
+  });
+  assert.equal(parseModelSource("https://huggingface.co/PaddlePaddle/Unlimited-OCR.git").repo_id, "PaddlePaddle/Unlimited-OCR");
   assert.equal(parseModelSource("hf://Qwen/Qwen3-Embedding-8B").repo_id, "Qwen/Qwen3-Embedding-8B");
 });

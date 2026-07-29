@@ -1,0 +1,34 @@
+#
+# Custom MinerU document parsing profile.
+# Uses the complete local MinerU2.5-Pro model with the Transformers backend.
+#
+services:
+  mineru-document-service:
+    image: ${MINERU_IMAGE:-local/ai-stack-mineru:latest}
+    build:
+      context: ../../..
+      dockerfile: deploy/dockerfiles/custom/mineru.Dockerfile
+      args:
+        PYTORCH_BASE_IMAGE: ${PYTORCH_BASE_IMAGE:-nvcr.io/nvidia/pytorch:25.04-py3}
+    container_name: custom_mineru_document_service
+    gpus: all
+    ipc: host
+    ports:
+      - "${AI_STACK_BIND_ADDR:-127.0.0.1}:${MINERU_PUBLIC_PORT:-33040}:8000"
+    restart: ${AI_STACK_RESTART_POLICY:-no}
+    volumes:
+      - ../../../models/${MODEL_ALIAS:-mineru2.5-pro-2605-1.2b}:/models/${MODEL_ALIAS:-mineru2.5-pro-2605-1.2b}:ro
+      - ../../../cache:/cache
+    environment:
+      - MODEL_PATH=/models/${MODEL_ALIAS:-mineru2.5-pro-2605-1.2b}
+      - CACHE_ROOT=/cache
+    command:
+      - python
+      - -m
+      - ai_stack_document_server
+      - --model
+      - /models/${MODEL_ALIAS:-mineru2.5-pro-2605-1.2b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"

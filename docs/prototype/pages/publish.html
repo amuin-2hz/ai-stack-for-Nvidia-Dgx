@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>publish</title>
+  <link rel="stylesheet" href="../style/publish.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./tasks.html">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </a>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <section class="publishWorkspace publishWorkspaceCompact">
+          <section class="publishMainShell">
+            <section class="publishTopBar">
+              <div class="publishTopBarGroup">
+                <div class="statusBadge">
+                  <span>Status: Running</span>
+                  <span class="statusSwitch"><span class="statusSwitchThumb"></span></span>
+                </div>
+                <button class="toolbarButton" type="button">Server Settings</button>
+                <button class="toolbarButton" type="button">mcp.json</button>
+              </div>
+              <div class="publishTopBarGroup isRight">
+                <span class="reachableLabel">Reachable at:</span>
+                <a class="reachableLink" href="javascript:void(0)">http://127.0.0.1:62888</a>
+                <button class="toolbarIconButton" type="button" aria-label="复制">⧉</button>
+                <button class="loadModelButton" id="openLoadModelButton" type="button">+ Load Model</button>
+              </div>
+            </section>
+
+            <section class="loadedModelsStage">
+              <div class="loadedModelsHeader">
+                <h2>Loaded Models</h2>
+              </div>
+
+              <article class="loadedModelCard" id="loadedModelCard">
+                <div class="loadedModelTopRow">
+                  <span class="loadedStateTag">READY</span>
+                  <button class="cardExpandButton" type="button" aria-label="展开">›</button>
+                </div>
+
+                <div class="loadedModelMainRow">
+                  <div class="loadedModelIdentity">
+                    <span class="loadedContextTag" id="loadedContextTag">11m</span>
+                    <a class="loadedModelName" id="loadedModelName" href="javascript:void(0)">qwen3.5-9b-yoyo-instruct-i1</a>
+                    <button class="tinyActionButton" type="button" aria-label="外链">↗</button>
+                    <button class="tinyActionButton" type="button" aria-label="复制">⧉</button>
+                    <button class="protocolButton" type="button">CURL</button>
+                  </div>
+
+                  <div class="loadedModelMetaRow">
+                    <span class="metaValueBox">Size <strong id="loadedModelSize">5.35 GB</strong></span>
+                    <span class="metaValueBox">Parallel <strong id="loadedParallel">2</strong></span>
+                    <button class="ejectButton" id="ejectModelButton" type="button">Eject</button>
+                  </div>
+                </div>
+
+                <div class="loadedRuntimeRow">
+                  <span class="runtimeLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+                  <button class="runtimePrimaryButton" id="runtimeSelectButton" type="button">PyTorch</button>
+                  <span class="runtimeHintText" id="runtimeHintText" data-i18n data-zh="模型已自动匹配默认运行时，可按需切换。" data-en="Default runtime is matched automatically and can be switched.">模型已自动匹配默认运行时，可按需切换。</span>
+                  <div class="runtimeOptionList" id="runtimeOptionList"></div>
+                </div>
+              </article>
+
+              <div class="endpointBar">
+                <span data-i18n data-zh="支持的端点（与 OpenAI 兼容的格式）" data-en="Supported endpoint (OpenAI compatible format)">支持的端点（与 OpenAI 兼容的格式）</span>
+                <div class="endpointTagRow">
+                  <span class="endpointTag isNew">NEW</span>
+                  <span class="endpointTag">REST API v1</span>
+                  <button class="endpointArrowButton" type="button">›</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="publishLogCard publishLogStage">
+              <div class="panelHeader panelHeaderWithActions">
+                <h2>Developer Logs</h2>
+                <div class="logToolbarActions">
+                  <button class="toolbarIconButton" type="button" aria-label="更多">⋯</button>
+                  <button class="toolbarIconButton" type="button" aria-label="清理">🗑</button>
+                  <button class="toolbarIconButton" type="button" aria-label="复制">⧉</button>
+                </div>
+              </div>
+              <div class="publishLogArea">
+                <div class="logLine"><span>2026-06-23 23:16:32</span><strong>[DEBUG]</strong><em data-i18n data-zh="服务启动完成，运行时进入空闲状态。" data-en="Service started, runtime is idle.">服务启动完成，运行时进入空闲状态。</em></div>
+                <div class="logLine"><span>2026-06-23 23:16:33</span><strong>[DEBUG]</strong><em data-i18n data-zh="已加载模型 qwen3.5-9b-yoyo-instruct-i1。" data-en="Loaded model qwen3.5-9b-yoyo-instruct-i1.">已加载模型 qwen3.5-9b-yoyo-instruct-i1。</em></div>
+                <div class="logLine"><span>2026-06-23 23:16:33</span><strong>[INFO]</strong><em data-i18n data-zh="根据模型格式自动匹配运行时参数。" data-en="Matched runtime parameters based on model format.">根据模型格式自动匹配运行时参数。</em></div>
+                <div class="logLine"><span>2026-06-23 23:16:34</span><strong>[INFO]</strong><em data-i18n data-zh="本地 API 端点可用: http://127.0.0.1:62888" data-en="Local API endpoint is reachable: http://127.0.0.1:62888">本地 API 端点可用: http://127.0.0.1:62888</em></div>
+              </div>
+            </section>
+          </section>
+
+          <aside class="publishSidePanel publishSidePanelCompact">
+            <div class="publishToolHeader">
+              <div class="publishToolTitleRow">
+                <strong id="toolModelTitle">Qwen3.5 9B YOYO Instruct...</strong>
+                <button class="toolMoreButton" type="button" aria-label="更多">⋯</button>
+              </div>
+
+              <div class="publishToolTabs">
+                <button class="publishToolTabButton isActive" type="button" data-tool-tab="infoPanel">Info</button>
+                <button class="publishToolTabButton" type="button" data-tool-tab="loadPanel">Load</button>
+                <button class="publishToolTabButton" type="button" data-tool-tab="inferencePanel">Inference</button>
+              </div>
+            </div>
+
+            <div class="publishToolBody">
+              <section class="publishToolPanel isActive" id="infoPanel">
+                <section class="publishInfoCard">
+                  <div class="publishToolSectionTitle" data-i18n data-zh="模型信息" data-en="Model Information">模型信息</div>
+                  <div class="publishInfoList">
+                    <div class="publishInfoRow">
+                      <span>Model</span>
+                      <strong id="infoModelRepo">mrademacher/Qwen3.5-...</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>File</span>
+                      <strong id="infoModelFile">Qwen3.5-9B-YOYO-Instr...</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Format</span>
+                      <strong id="infoModelFormat">GGUF</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Quantization</span>
+                      <strong id="infoModelQuantization">Q4_K_S</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Arch</span>
+                      <strong id="infoModelArch">qwen35</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Capabilities</span>
+                      <strong id="infoModelCapabilities">Tool use</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Domain</span>
+                      <strong id="infoModelDomain">11m</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span>Size on disk</span>
+                      <strong id="infoModelSize">5.35 GB</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="publishApiCard">
+                  <div class="publishToolSectionTitle">API Usage</div>
+                  <label class="publishField">
+                    <span>API Model Identifier</span>
+                    <div class="publishCopyField">
+                      <input id="apiModelIdentifierInput" type="text" value="qwen3.5-9b-yoyo-instruct-i1">
+                      <button class="copyFieldButton" type="button" aria-label="复制">⧉</button>
+                    </div>
+                  </label>
+                  <label class="publishField">
+                    <span>The local server is reachable at:</span>
+                    <div class="publishCopyField">
+                      <input type="text" value="http://127.0.0.1:62888">
+                      <button class="copyFieldButton" type="button" aria-label="复制">⧉</button>
+                    </div>
+                  </label>
+                </section>
+              </section>
+
+              <section class="publishToolPanel" id="loadPanel">
+                <section class="publishLoadCard">
+                  <div class="publishToolSectionTitle" data-i18n data-zh="运行时加载" data-en="Runtime Load">运行时加载</div>
+                  <div class="publishInfoList">
+                    <div class="publishInfoRow">
+                      <span data-i18n data-zh="当前运行时" data-en="Current Runtime">当前运行时</span>
+                      <strong id="infoCurrentRuntime">PyTorch</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span data-i18n data-zh="默认运行时" data-en="Default Runtime">默认运行时</span>
+                      <strong id="infoDefaultRuntime">PyTorch</strong>
+                    </div>
+                    <div class="publishInfoRow">
+                      <span data-i18n data-zh="可切换运行时" data-en="Available Runtimes">可切换运行时</span>
+                      <strong id="infoAvailableRuntimes">PyTorch, vLLM</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="publishLoadCard">
+                  <div class="publishToolSectionTitle" data-i18n data-zh="上下文与卸载" data-en="Context and Offload">上下文与卸载</div>
+
+                  <div class="publishSliderGroup">
+                    <div class="publishSliderHead">
+                      <span data-i18n data-zh="上下文长度" data-en="Context Length">上下文长度</span>
+                      <strong>62928</strong>
+                    </div>
+                    <div class="publishSliderMeta">
+                      <span data-i18n data-zh="模型支持最多 262144 个 token" data-en="Model supports up to 262144 tokens">模型支持最多 262144 个 token</span>
+                    </div>
+                    <div class="sliderTrack">
+                      <span class="sliderThumb" style="left: 62%;"></span>
+                    </div>
+                  </div>
+
+                  <div class="publishSliderGroup">
+                    <div class="publishSliderHead">
+                      <span data-i18n data-zh="GPU 卸载" data-en="GPU Offload">GPU 卸载</span>
+                      <strong>24</strong>
+                    </div>
+                    <div class="sliderTrack">
+                      <span class="sliderThumb" style="left: 63%;"></span>
+                    </div>
+                  </div>
+                </section>
+
+                <button class="publishToolAccordion" type="button">Advanced</button>
+              </section>
+
+              <section class="publishToolPanel" id="inferencePanel">
+                <section class="publishPresetCard">
+                  <div class="publishToolSectionTitle" data-i18n data-zh="预设" data-en="Presets">预设</div>
+                  <div class="selectDisplay" data-i18n data-zh="选择一个预设..." data-en="Select a preset...">选择一个预设...</div>
+                  <div class="publishPresetActions">
+                    <button class="publishGhostButton publishPresetSaveButton" type="button" data-i18n data-zh="保存预设为..." data-en="Save Preset As...">保存预设为...</button>
+                    <button class="publishIconButton" type="button" aria-label="更多">⋮</button>
+                  </div>
+                </section>
+
+                <div class="publishInferenceList">
+                  <button class="publishToolAccordion" type="button" data-i18n data-zh="系统提示" data-en="System Prompt">系统提示</button>
+                  <button class="publishToolAccordion" type="button" data-i18n data-zh="设置" data-en="Settings">设置</button>
+                  <button class="publishToolAccordion" type="button" data-i18n data-zh="采样" data-en="Sampling">采样</button>
+                  <button class="publishToolAccordion" type="button" data-i18n data-zh="结构化输出" data-en="Structured Output">结构化输出</button>
+                  <button class="publishToolAccordion" type="button" data-i18n data-zh="投机解码" data-en="Speculative Decoding">投机解码</button>
+                </div>
+              </section>
+            </div>
+
+            <div class="publishSideFooter">
+              <button class="publishGhostButton" id="switchRuntimeButton" type="button" data-i18n data-zh="切换运行时" data-en="Switch Runtime">切换运行时</button>
+              <button class="publishPrimaryButton" type="button" data-i18n data-zh="应用模型" data-en="Apply Model">应用模型</button>
+            </div>
+          </aside>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="loadModelModalOverlay" id="loadModelModalOverlay" hidden>
+    <div class="loadModelModal">
+      <div class="loadModelModalHeader">
+        <input class="loadModelSearchInput" id="loadModelSearchInput" type="text" placeholder="Type to filter models..." aria-label="搜索模型">
+        <button class="closeModalButton" id="closeLoadModelButton" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="loadModelSection">
+        <div class="loadModelSectionHead">
+          <strong id="currentlyLoadedLabel">Currently Loaded (1)</strong>
+          <span>Memory Consumption: <b>5.89 GB</b> / 63 GB</span>
+        </div>
+        <div class="currentLoadedRow" id="currentLoadedRow">
+          <span class="currentLoadedName" id="currentLoadedName">qwen3.5-9b-yoyo-instruct-i1</span>
+          <span class="currentLoadedBadge">Context: 62928</span>
+          <span class="currentLoadedBadge">GGUF</span>
+          <span class="currentLoadedBadge" id="currentLoadedRuntimeBadge">PyTorch</span>
+          <button class="currentLoadedEjectButton" id="currentLoadedEjectButton" type="button">Eject</button>
+        </div>
+      </div>
+
+      <div class="loadModelSection">
+        <div class="loadModelSectionHead">
+          <strong>Your Models</strong>
+          <div class="modelSortTabs">
+            <button class="modelSortTabButton isActive" type="button">Recency ↓</button>
+            <button class="modelSortTabButton" type="button">Size</button>
+            <button class="modelSortTabButton" type="button">Downloaded</button>
+          </div>
+        </div>
+
+        <div class="loadModelTable">
+          <button class="loadModelRow" type="button" data-model-id="qwen35">
+            <span class="loadRowName">Qwen3.5 9B YOYO Instruct I1</span>
+            <span class="loadRowQuant">Q4_K_S</span>
+            <span class="loadRowRuntime">PyTorch</span>
+            <span class="loadRowRepo">mrademacher</span>
+            <span class="loadRowSize">4.98 GB</span>
+            <span class="loadRowFormat">GGUF</span>
+            <span class="loadRowArrow">›</span>
+          </button>
+          <button class="loadModelRow" type="button" data-model-id="qwen3asr">
+            <span class="loadRowName">Qwen3 ASR 0.6B</span>
+            <span class="loadRowQuant">Q8_0</span>
+            <span class="loadRowRuntime">PyTorch</span>
+            <span class="loadRowRepo">ggml-org</span>
+            <span class="loadRowSize">1.10 GB</span>
+            <span class="loadRowFormat">GGUF</span>
+            <span class="loadRowArrow">›</span>
+          </button>
+          <button class="loadModelRow" type="button" data-model-id="qwen3vl">
+            <span class="loadRowName">Qwen3 VL 8B</span>
+            <span class="loadRowQuant">Q4_K_M</span>
+            <span class="loadRowRuntime">vLLM</span>
+            <span class="loadRowRepo">qwen</span>
+            <span class="loadRowSize">5.76 GB</span>
+            <span class="loadRowFormat">GGUF</span>
+            <span class="loadRowArrow">›</span>
+          </button>
+          <button class="loadModelRow" type="button" data-model-id="omnicoder">
+            <span class="loadRowName">Omnicoder 9B</span>
+            <span class="loadRowQuant">Q4_K_S</span>
+            <span class="loadRowRuntime">TensorRT-LLM</span>
+            <span class="loadRowRepo">Tesslate</span>
+            <span class="loadRowSize">4.98 GB</span>
+            <span class="loadRowFormat">GGUF</span>
+            <span class="loadRowArrow">›</span>
+          </button>
+          <button class="loadModelRow" type="button" data-model-id="nomicEmbed">
+            <span class="loadRowName">Nomic Embed Text v1.5</span>
+            <span class="loadRowQuant">Q4_K_M</span>
+            <span class="loadRowRuntime">PyTorch</span>
+            <span class="loadRowRepo">nomic-ai</span>
+            <span class="loadRowSize">80.21 MB</span>
+            <span class="loadRowFormat">GGUF</span>
+            <span class="loadRowArrow">›</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const frameState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentToolTab: "infoPanel",
+      currentModelId: "qwen35",
+      currentRuntimeId: "pytorch"
+    };
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+    const toolTabButtonNodeList = document.querySelectorAll(".publishToolTabButton");
+    const toolPanelNodeList = document.querySelectorAll(".publishToolPanel");
+    const loadModelModalOverlay = document.getElementById("loadModelModalOverlay");
+    const openLoadModelButton = document.getElementById("openLoadModelButton");
+    const closeLoadModelButton = document.getElementById("closeLoadModelButton");
+    const loadModelSearchInput = document.getElementById("loadModelSearchInput");
+    const loadModelRowNodeList = document.querySelectorAll(".loadModelRow");
+    const ejectModelButton = document.getElementById("ejectModelButton");
+    const currentLoadedEjectButton = document.getElementById("currentLoadedEjectButton");
+    const switchRuntimeButton = document.getElementById("switchRuntimeButton");
+    const currentLoadedRow = document.getElementById("currentLoadedRow");
+    const currentlyLoadedLabel = document.getElementById("currentlyLoadedLabel");
+    const currentLoadedName = document.getElementById("currentLoadedName");
+    const loadedModelName = document.getElementById("loadedModelName");
+    const loadedModelSize = document.getElementById("loadedModelSize");
+    const loadedParallel = document.getElementById("loadedParallel");
+    const loadedContextTag = document.getElementById("loadedContextTag");
+    const runtimeSelectButton = document.getElementById("runtimeSelectButton");
+    const runtimeHintText = document.getElementById("runtimeHintText");
+    const runtimeOptionList = document.getElementById("runtimeOptionList");
+    const currentLoadedRuntimeBadge = document.getElementById("currentLoadedRuntimeBadge");
+    const toolModelTitle = document.getElementById("toolModelTitle");
+    const infoModelRepo = document.getElementById("infoModelRepo");
+    const infoModelFile = document.getElementById("infoModelFile");
+    const infoModelFormat = document.getElementById("infoModelFormat");
+    const infoModelQuantization = document.getElementById("infoModelQuantization");
+    const infoModelArch = document.getElementById("infoModelArch");
+    const infoModelCapabilities = document.getElementById("infoModelCapabilities");
+    const infoModelDomain = document.getElementById("infoModelDomain");
+    const infoModelSize = document.getElementById("infoModelSize");
+    const infoCurrentRuntime = document.getElementById("infoCurrentRuntime");
+    const infoDefaultRuntime = document.getElementById("infoDefaultRuntime");
+    const infoAvailableRuntimes = document.getElementById("infoAvailableRuntimes");
+    const apiModelIdentifierInput = document.getElementById("apiModelIdentifierInput");
+
+    const modelRegistry = {
+      qwen35: {
+        title: "Qwen3.5 9B YOYO Instruct...",
+        loadedName: "qwen3.5-9b-yoyo-instruct-i1",
+        context: "11m",
+        size: "5.35 GB",
+        parallel: "2",
+        repo: "mrademacher/Qwen3.5-...",
+        file: "Qwen3.5-9B-YOYO-Instr...",
+        format: "GGUF",
+        quantization: "Q4_K_S",
+        arch: "qwen35",
+        capabilities: "Tool use",
+        domain: "11m",
+        defaultRuntimeId: "pytorch",
+        runtimeOptions: [
+          { id: "pytorch", name: "PyTorch" },
+          { id: "vllm", name: "vLLM" }
+        ]
+      },
+      qwen3asr: {
+        title: "Qwen3 ASR 0.6B",
+        loadedName: "qwen3-asr-0.6b",
+        context: "ASR",
+        size: "1.10 GB",
+        parallel: "1",
+        repo: "ggml-org/Qwen3-ASR...",
+        file: "Qwen3-ASR-0.6B",
+        format: "GGUF",
+        quantization: "Q8_0",
+        arch: "qwen3vl",
+        capabilities: "Speech",
+        domain: "audio",
+        defaultRuntimeId: "pytorch",
+        runtimeOptions: [
+          { id: "pytorch", name: "PyTorch" }
+        ]
+      },
+      qwen3vl: {
+        title: "Qwen3 VL 8B",
+        loadedName: "qwen3-vl-8b",
+        context: "8B",
+        size: "5.76 GB",
+        parallel: "2",
+        repo: "qwen/Qwen3-VL-8B",
+        file: "Qwen3-VL-8B",
+        format: "GGUF",
+        quantization: "Q4_K_M",
+        arch: "qwen3vl",
+        capabilities: "Vision",
+        domain: "vision",
+        defaultRuntimeId: "vllm",
+        runtimeOptions: [
+          { id: "vllm", name: "vLLM" },
+          { id: "tensorrtLlm", name: "TensorRT-LLM" }
+        ]
+      },
+      omnicoder: {
+        title: "Omnicoder 9B",
+        loadedName: "omnicoder-9b",
+        context: "9B",
+        size: "4.98 GB",
+        parallel: "2",
+        repo: "Tesslate/Omnicoder-9B",
+        file: "Omnicoder-9B",
+        format: "GGUF",
+        quantization: "Q4_K_S",
+        arch: "qwen35",
+        capabilities: "Coding",
+        domain: "code",
+        defaultRuntimeId: "tensorrtLlm",
+        runtimeOptions: [
+          { id: "tensorrtLlm", name: "TensorRT-LLM" },
+          { id: "pytorch", name: "PyTorch" }
+        ]
+      },
+      nomicEmbed: {
+        title: "Nomic Embed Text v1.5",
+        loadedName: "nomic-embed-text-v1.5",
+        context: "embed",
+        size: "80.21 MB",
+        parallel: "1",
+        repo: "nomic-ai/nomic-embed...",
+        file: "Nomic-Embed-Text-v1.5",
+        format: "GGUF",
+        quantization: "Q4_K_M",
+        arch: "nomic-bert",
+        capabilities: "Embedding",
+        domain: "text",
+        defaultRuntimeId: "pytorch",
+        runtimeOptions: [
+          { id: "pytorch", name: "PyTorch" }
+        ]
+      }
+    };
+
+    /**
+     * 获取当前选中模型对应的运行时配置。
+     */
+    function getCurrentRuntimeOption() {
+      const currentModel = modelRegistry[frameState.currentModelId];
+
+      if (!currentModel) {
+        return null;
+      }
+
+      return currentModel.runtimeOptions.find((optionItem) => optionItem.id === frameState.currentRuntimeId) || currentModel.runtimeOptions[0];
+    }
+
+    /**
+     * 获取指定模型中的默认运行时名称。
+     */
+    function getDefaultRuntimeName(currentModel) {
+      if (!currentModel) {
+        return "No Runtime";
+      }
+
+      const defaultRuntime = currentModel.runtimeOptions.find((optionItem) => optionItem.id === currentModel.defaultRuntimeId);
+
+      return defaultRuntime ? defaultRuntime.name : "No Runtime";
+    }
+
+    /**
+     * 刷新当前加载状态的展示和可操作性。
+     */
+    function refreshLoadedState() {
+      const hasSelectedModel = Boolean(modelRegistry[frameState.currentModelId]);
+
+      currentLoadedRow.hidden = !hasSelectedModel;
+      currentlyLoadedLabel.textContent = hasSelectedModel ? "Currently Loaded (1)" : "Currently Loaded (0)";
+      ejectModelButton.disabled = !hasSelectedModel;
+      runtimeSelectButton.disabled = !hasSelectedModel;
+      switchRuntimeButton.disabled = !hasSelectedModel;
+    }
+
+    /**
+     * 按当前模型刷新运行时信息与可切换按钮。
+     */
+    function refreshRuntimeState() {
+      const currentModel = modelRegistry[frameState.currentModelId];
+      const currentRuntime = getCurrentRuntimeOption();
+      const defaultRuntimeName = getDefaultRuntimeName(currentModel);
+
+      if (!currentModel || !currentRuntime) {
+        runtimeSelectButton.textContent = "No Runtime";
+        runtimeHintText.textContent = "请先加载模型";
+        currentLoadedRuntimeBadge.textContent = "No Runtime";
+        infoCurrentRuntime.textContent = "--";
+        infoDefaultRuntime.textContent = "--";
+        infoAvailableRuntimes.textContent = "--";
+        runtimeOptionList.innerHTML = "";
+        refreshLoadedState();
+        return;
+      }
+
+      runtimeSelectButton.textContent = currentRuntime.name;
+      runtimeHintText.textContent = currentModel.runtimeOptions.length > 1 ? `默认 ${defaultRuntimeName} · 可切换 ${currentModel.runtimeOptions.filter((optionItem) => optionItem.id !== frameState.currentRuntimeId).map((optionItem) => optionItem.name).join(" / ")}` : `默认 ${defaultRuntimeName} · 当前模型仅支持该运行时`;
+      currentLoadedRuntimeBadge.textContent = currentRuntime.name;
+      infoCurrentRuntime.textContent = currentRuntime.name;
+      infoDefaultRuntime.textContent = defaultRuntimeName;
+      infoAvailableRuntimes.textContent = currentModel.runtimeOptions.map((optionItem) => optionItem.name).join(", ");
+      runtimeOptionList.innerHTML = "";
+      runtimeSelectButton.disabled = currentModel.runtimeOptions.length <= 1;
+      switchRuntimeButton.disabled = currentModel.runtimeOptions.length <= 1;
+
+      currentModel.runtimeOptions.forEach((optionItem) => {
+        const runtimeButton = document.createElement("button");
+
+        runtimeButton.type = "button";
+        runtimeButton.className = optionItem.id === frameState.currentRuntimeId ? "runtimeOptionButton isActive" : "runtimeOptionButton";
+        runtimeButton.textContent = optionItem.name;
+        runtimeButton.dataset.runtimeId = optionItem.id;
+        runtimeButton.addEventListener("click", switchRuntime);
+        runtimeOptionList.appendChild(runtimeButton);
+      });
+
+      refreshLoadedState();
+    }
+
+    /**
+     * 从地址参数中提取当前页面语言、主题与侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        frameState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        frameState.currentTheme = "light";
+      }
+
+      frameState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = frameState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", frameState.currentTheme === "light");
+      document.documentElement.lang = frameState.currentLanguage === "zh" ? "zh-CN" : "en";
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = frameState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 根据当前右侧工具栏 tab 状态刷新显示面板。
+     */
+    function refreshToolTabs() {
+      toolTabButtonNodeList.forEach((buttonItem) => {
+        const isActive = buttonItem.dataset.toolTab === frameState.currentToolTab;
+
+        buttonItem.classList.toggle("isActive", isActive);
+        buttonItem.setAttribute("aria-selected", String(isActive));
+      });
+
+      toolPanelNodeList.forEach((panelItem) => {
+        panelItem.classList.toggle("isActive", panelItem.id === frameState.currentToolTab);
+      });
+    }
+
+    /**
+     * 根据当前选中的模型刷新主区和右侧信息。
+     */
+    function refreshModelState() {
+      const currentModel = modelRegistry[frameState.currentModelId];
+
+      if (!currentModel) {
+        refreshRuntimeState();
+        return;
+      }
+
+      frameState.currentRuntimeId = currentModel.defaultRuntimeId;
+
+      currentLoadedName.textContent = currentModel.loadedName;
+      loadedModelName.textContent = currentModel.loadedName;
+      loadedModelSize.textContent = currentModel.size;
+      loadedParallel.textContent = currentModel.parallel;
+      loadedContextTag.textContent = currentModel.context;
+      toolModelTitle.textContent = currentModel.title;
+      infoModelRepo.textContent = currentModel.repo;
+      infoModelFile.textContent = currentModel.file;
+      infoModelFormat.textContent = currentModel.format;
+      infoModelQuantization.textContent = currentModel.quantization;
+      infoModelArch.textContent = currentModel.arch;
+      infoModelCapabilities.textContent = currentModel.capabilities;
+      infoModelDomain.textContent = currentModel.domain;
+      infoModelSize.textContent = currentModel.size;
+      apiModelIdentifierInput.value = currentModel.loadedName;
+      currentLoadedRow.hidden = false;
+      refreshRuntimeState();
+    }
+
+    /**
+     * 按搜索关键词过滤模型列表。
+     */
+    function filterLoadModelRows() {
+      const keywordValue = loadModelSearchInput.value.trim().toLowerCase();
+
+      loadModelRowNodeList.forEach((rowItem) => {
+        const modelId = rowItem.dataset.modelId;
+        const modelItem = modelRegistry[modelId];
+        const searchText = [
+          modelItem ? modelItem.title : "",
+          modelItem ? modelItem.loadedName : "",
+          modelItem ? modelItem.repo : "",
+          modelItem ? modelItem.file : "",
+          modelItem ? modelItem.format : "",
+          modelItem ? modelItem.quantization : "",
+          modelItem ? modelItem.runtimeOptions.map((optionItem) => optionItem.name).join(" ") : "",
+          rowItem.textContent
+        ].join(" ").toLowerCase();
+        const isVisible = !keywordValue || searchText.includes(keywordValue);
+
+        rowItem.hidden = !isVisible;
+      });
+    }
+
+    /**
+     * 打开加载模型弹窗。
+     */
+    function openLoadModelModal() {
+      loadModelModalOverlay.hidden = false;
+      loadModelSearchInput.focus();
+      loadModelSearchInput.select();
+    }
+
+    /**
+     * 关闭加载模型弹窗。
+     */
+    function closeLoadModelModal() {
+      loadModelModalOverlay.hidden = true;
+      loadModelSearchInput.value = "";
+      filterLoadModelRows();
+    }
+
+    /**
+     * 选择模型后刷新页面信息。
+     */
+    function selectModel(event) {
+      frameState.currentModelId = event.currentTarget.dataset.modelId;
+      refreshModelState();
+      closeLoadModelModal();
+    }
+
+    /**
+     * 切换当前模型对应的运行时。
+     */
+    function switchRuntime(event) {
+      frameState.currentRuntimeId = event.currentTarget.dataset.runtimeId;
+      refreshRuntimeState();
+    }
+
+    /**
+     * 循环切换到下一个可用运行时。
+     */
+    function cycleRuntime() {
+      const currentModel = modelRegistry[frameState.currentModelId];
+
+      if (!currentModel || currentModel.runtimeOptions.length === 0) {
+        return;
+      }
+
+      const currentIndex = currentModel.runtimeOptions.findIndex((optionItem) => optionItem.id === frameState.currentRuntimeId);
+      const nextIndex = currentIndex >= currentModel.runtimeOptions.length - 1 ? 0 : currentIndex + 1;
+
+      frameState.currentRuntimeId = currentModel.runtimeOptions[nextIndex].id;
+      refreshRuntimeState();
+    }
+
+    /**
+     * 卸载当前模型，回到空载展示。
+     */
+    function ejectCurrentModel() {
+      frameState.currentModelId = "";
+      frameState.currentRuntimeId = "";
+      loadedModelName.textContent = "No model loaded";
+      loadedModelSize.textContent = "--";
+      loadedParallel.textContent = "--";
+      loadedContextTag.textContent = "--";
+      currentLoadedName.textContent = "No model loaded";
+      currentLoadedRuntimeBadge.textContent = "No Runtime";
+      runtimeSelectButton.textContent = "No Runtime";
+      runtimeHintText.textContent = "请先加载模型";
+      runtimeOptionList.innerHTML = "";
+      toolModelTitle.textContent = "No model selected";
+      infoCurrentRuntime.textContent = "--";
+      infoDefaultRuntime.textContent = "--";
+      infoAvailableRuntimes.textContent = "--";
+      apiModelIdentifierInput.value = "";
+      refreshLoadedState();
+    }
+
+    /**
+     * 切换右侧工具栏页签。
+     */
+    function switchToolTab(event) {
+      frameState.currentToolTab = event.currentTarget.dataset.toolTab;
+      refreshToolTabs();
+    }
+
+    /**
+     * 绑定右侧工具栏 tab 交互事件。
+     */
+    function bindToolTabEvents() {
+      toolTabButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", switchToolTab);
+      });
+    }
+
+    /**
+     * 绑定模型加载和卸载相关事件。
+     */
+    function bindModelEvents() {
+      openLoadModelButton.addEventListener("click", openLoadModelModal);
+      closeLoadModelButton.addEventListener("click", closeLoadModelModal);
+      ejectModelButton.addEventListener("click", ejectCurrentModel);
+      currentLoadedEjectButton.addEventListener("click", ejectCurrentModel);
+      runtimeSelectButton.addEventListener("click", cycleRuntime);
+      switchRuntimeButton.addEventListener("click", cycleRuntime);
+      loadModelSearchInput.addEventListener("input", filterLoadModelRows);
+
+      loadModelModalOverlay.addEventListener("click", (event) => {
+        if (event.target === loadModelModalOverlay) {
+          closeLoadModelModal();
+        }
+      });
+
+      loadModelRowNodeList.forEach((rowItem) => {
+        rowItem.addEventListener("click", selectModel);
+      });
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", frameState.currentLanguage);
+        linkUrl.searchParams.set("theme", frameState.currentTheme);
+        linkUrl.searchParams.set("sidebar", frameState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    refreshToolTabs();
+    refreshModelState();
+    syncQueryLinks();
+    bindToolTabEvents();
+    bindModelEvents();
+  </script>
+</body>
+</html>
+
+
+

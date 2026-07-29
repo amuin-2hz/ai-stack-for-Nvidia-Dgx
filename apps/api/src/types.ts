@@ -55,6 +55,8 @@ export interface ModelRecord {
     path: string;
     layout: string;
     format: string;
+    architecture?: string | null;
+    quantization?: string | null;
     size_bytes: number;
     file_count: number;
     weight_files: number;
@@ -107,6 +109,25 @@ export interface DeploymentRecord {
   worker_endpoint: string | null;
   openai_models: string[];
   warnings: string[];
+  suite?: DeploymentSuite;
+}
+
+export interface DeploymentSuiteComponent {
+  model_id: string;
+  role: string;
+  required: boolean;
+}
+
+export interface DeploymentSuite {
+  kind: "suite";
+  title?: string;
+  title_zh?: string;
+  publish_policy: "selected" | "all_ready";
+  load_policy: "lazy" | "eager";
+  card_mode: "grouped" | "individual";
+  health_path?: string;
+  primary_endpoint?: { kind?: string; method?: string; path: string };
+  components: DeploymentSuiteComponent[];
 }
 
 export interface ChatMessage {
@@ -146,7 +167,7 @@ export interface RepairAction {
 export interface TaskDiagnostic {
   category: string;
   severity: "info" | "warning" | "error";
-  stage?: "prepare" | "pull" | "start" | "health" | "download" | "launch" | "unknown";
+  stage?: "prepare" | "pull" | "start" | "load" | "health" | "download" | "launch" | "unknown";
   message: string;
   repair_actions: RepairAction[];
 }
@@ -168,6 +189,25 @@ export interface TaskRecord {
   finished_at?: string;
   exit_code?: number | null;
   error?: string;
+  progress_percent?: number;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  download_speed_bytes_per_sec?: number;
+  download_log_speed_bytes_per_sec?: number;
+  download_active_file?: string;
+  download_active_file_bytes?: number;
+  download_active_file_total_bytes?: number;
+  download_active_file_percent?: number;
+  download_elapsed?: string;
+  download_eta?: string;
+  download_items_done?: number;
+  download_items_total?: number;
+  download_retry_attempt?: number;
+  download_retry_total?: number;
+  download_error_code?: "network_unreachable" | "proxy_unreachable" | "download_failed";
+  total_bytes_estimated?: boolean;
+  target_path?: string;
+  complete_on_disk?: boolean;
   diagnostic?: TaskDiagnostic;
 }
 
@@ -185,6 +225,7 @@ export interface ActiveDeploymentRecord {
   status: string;
   task_id?: string;
   updated_at: string;
+  suite?: DeploymentSuite;
 }
 
 

@@ -46,6 +46,16 @@ export function listTasks(): TaskRecord[] {
   return (getDb().prepare("SELECT * FROM tasks ORDER BY created_at DESC").all() as any[]).map(taskRowToRecord);
 }
 
+export function deleteTask(taskId: string): boolean {
+  const db = getDb();
+  const transaction = db.transaction((id: string) => {
+    db.prepare("DELETE FROM model_files WHERE task_id = ?").run(id);
+    return db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+  });
+  const result = transaction(taskId) as any;
+  return Number(result.changes ?? 0) > 0;
+}
+
 function taskRowToRecord(r: any): TaskRecord {
   return {
     id: r.id,
@@ -130,7 +140,8 @@ export function upsertDeployment(d: ActiveDeploymentRecord): ActiveDeploymentRec
     base_url: d.base_url,
     health_url: d.health_url,
     worker_endpoint: d.worker_endpoint,
-    task_id: d.task_id
+    task_id: d.task_id,
+    suite: d.suite
   };
   db.prepare(`INSERT OR REPLACE INTO deployments (deployment_id, model_id, service_type, openai_model, container_name, status, config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`)
     .run(d.deployment_id, d.model_id, d.service_type, d.openai_model, d.container_name ?? null, d.status, JSON.stringify(config), d.updated_at, d.updated_at);
@@ -167,6 +178,7 @@ function deploymentRowToRecord(r: any): ActiveDeploymentRecord {
     status: r.status,
     task_id: config.task_id,
     updated_at: r.updated_at,
+    suite: config.suite,
   };
 }
 

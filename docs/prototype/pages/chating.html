@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>chating</title>
+  <link rel="stylesheet" href="../style/chating.css">
+</head>
+<body>
+  <div class="appShell">
+    <main class="mainLayout">
+      <aside class="sideNav isCollapsed" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem isActive" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./tasks.html">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </a>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="chatPanel">
+        <div class="chatPanelHeader">
+          <h1 class="chatPanelTitle">聊天列表</h1>
+          <div class="chatPanelActions">
+            <button class="headerMiniButton" aria-label="更多">⋯</button>
+            <button class="headerMiniButton" aria-label="新建">✎</button>
+          </div>
+        </div>
+
+        <label class="searchBox">
+          <span class="searchIcon">⌕</span>
+          <input type="text" placeholder="Search chats..." aria-label="搜索聊天">
+        </label>
+
+        <button class="folderButton" type="button">New Folder</button>
+
+        <nav class="chatList" aria-label="会话列表">
+          <a class="chatItem" data-preserve-query href="./chatTest.html">Task Complexity Assessment</a>
+          <a class="chatItem" href="javascript:void(0)">Global Economy &amp; Trade</a>
+          <a class="chatItem isSelected" data-preserve-query href="./chating.html">Task Complexity Scoring</a>
+          <a class="chatItem" href="javascript:void(0)">Diverse Task Scoring Analysis</a>
+          <a class="chatItem" href="javascript:void(0)">Global Economy and Trade</a>
+          <a class="chatItem" href="javascript:void(0)">economic impact analysis</a>
+          <a class="chatItem" href="javascript:void(0)">Civil Code Data Security Report</a>
+          <a class="chatItem" href="javascript:void(0)">Data Security and Privacy</a>
+          <a class="chatItem" href="javascript:void(0)">Understanding Your Input</a>
+          <a class="chatItem" href="javascript:void(0)">Simple Greeting and Help Offer</a>
+          <a class="chatItem" href="javascript:void(0)">Password Reset Assistance</a>
+          <a class="chatItem" href="javascript:void(0)">Greeting and Offer of Help</a>
+        </nav>
+      </section>
+
+      <section class="contentPanel">
+        <div class="contentPanelHeader">
+          <h2 class="contentPanelTitle">Task Complexity Scoring</h2>
+          <button class="splitButton" aria-label="切换分栏">◧</button>
+        </div>
+
+        <div class="chatConversation">
+          <div class="promptCard">
+            <ol class="promptList">
+              <li>计算 123 + 456 等于多少？</li>
+              <li>解释什么是光合作用。</li>
+              <li>用 Python 写一个函数，判断一个数是否为质数。</li>
+              <li>分析当前全球宏观经济形势对中国出口贸易的影响，并给出政策建议。</li>
+              <li>设计一个可扩展的分布式消息队列系统架构，包括数据一致性、高可用和容错机制。</li>
+            </ol>
+          </div>
+
+          <div class="messageBlock">
+            <div class="messageModelName">qwen3.5-9b-yoyo-instruct-i1</div>
+            <pre class="messageCodeBlock">{
+  "task1": { "description": "计算 123 + 456 等于多少？", "score": 1 },
+  "task2": { "description": "解释什么是光合作用。", "score": 3 },
+  "task3": { "description": "用 Python 写一个函数，判断一个数是否为质数。", "score": 5 },
+  "task4": { "description": "分析当前全球宏观经济形势对中国出口贸易的影响，并给出政策建议。", "score": 8 },
+  "task5": { "description": "设计一个可扩展的分布式消息队列系统架构，包括数据一致性、高可用和容错机制。", "score": 10 }
+}</pre>
+            <div class="messageMetaRow">
+              <span>31.59 token/s</span>
+              <span>158 token</span>
+              <span>0.40s</span>
+              <span>停止原因: 检测到 EOS token</span>
+            </div>
+            <div class="messageActionRow">
+              <button class="messageIconButton" type="button" aria-label="链接">↺</button>
+              <button class="messageIconButton" type="button" aria-label="复制">⧉</button>
+              <button class="messageIconButton" type="button" aria-label="编辑">✎</button>
+              <button class="messageIconButton" type="button" aria-label="删除">🗑</button>
+            </div>
+          </div>
+
+          <div class="composerPanel">
+            <div class="composerInput" data-i18n data-zh="Send a message to the model..." data-en="Send a message to the model...">Send a message to the model...</div>
+            <div class="composerToolbar">
+              <div class="composerLeftActions">
+                <button class="composerToolButton" type="button">＋</button>
+                <button class="composerToolButton" type="button">⌁</button>
+              </div>
+              <div class="composerRightActions">
+                <span class="composerTokenHint">9%</span>
+                <button class="composerSendButton" type="button">↑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="detailPanel">
+        <div class="detailPanelHeader">
+          <div class="detailPanelTabs">
+            <button class="detailTabButton isActive" type="button">⌁</button>
+            <button class="detailTabButton" type="button">⚙</button>
+          </div>
+          <button class="headerMiniButton" aria-label="更多">⋯</button>
+        </div>
+        <div class="detailPanelBody">
+          <div class="detailSectionTitle">Integrations</div>
+          <button class="detailInstallButton" type="button">＋ Install</button>
+          <label class="detailSearchBox">
+            <input type="text" value="Filter plugins..." aria-label="筛选插件">
+          </label>
+          <div class="pluginList">
+            <div class="pluginItem">
+              <span class="pluginToggle isOn"></span>
+              <span class="pluginName">js-code-sandbox</span>
+              <span class="pluginBadge">⌘</span>
+              <span class="pluginMore">⋯</span>
+            </div>
+            <div class="pluginItem">
+              <span class="pluginToggle"></span>
+              <span class="pluginName">rag-v1</span>
+              <span class="pluginBadge">⌘</span>
+              <span class="pluginMore">⋯</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const pageState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "collapsed"
+    };
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+
+    /**
+     * 根据当前语言状态刷新界面文案。
+     */
+    function refreshInterfaceLanguage() {
+      const currentLanguageKey = pageState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[currentLanguageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+
+      document.documentElement.lang = pageState.currentLanguage === "zh" ? "zh-CN" : "en";
+    }
+
+    /**
+     * 根据地址参数同步明暗主题和语言状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        pageState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        pageState.currentTheme = "light";
+      }
+
+      if (sidebarValue === "expanded" || sidebarValue === "collapsed") {
+        pageState.currentSidebar = sidebarValue;
+      }
+
+      document.body.classList.toggle("themeLight", pageState.currentTheme === "light");
+    }
+
+    /**
+     * 根据当前侧栏状态刷新左侧菜单的展开与收起。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = pageState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 保持页面跳转时的主题、语言和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", pageState.currentLanguage);
+        linkUrl.searchParams.set("theme", pageState.currentTheme);
+        linkUrl.searchParams.set("sidebar", pageState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    syncStateFromQuery();
+    refreshInterfaceLanguage();
+    refreshSidebarState();
+    syncQueryLinks();
+  </script>
+</body>
+</html>
+
+
+

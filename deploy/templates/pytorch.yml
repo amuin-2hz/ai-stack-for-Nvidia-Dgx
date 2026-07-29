@@ -1,16 +1,21 @@
-# PyTorch 容器模板 — Whisper ASR (WebSocket 流模式)
+# PyTorch 容器模板 — 通用 PyTorch 运行环境
 services:
-  pytorch-worker:
+  pytorch-service:
     build:
       context: .
       dockerfile: pytorch.Dockerfile
+      args:
+        PYTORCH_BASE_IMAGE: ${PYTORCH_IMAGE:-nvcr.io/nvidia/pytorch:25.04-py3}
     image: local/ai-stack-pytorch:latest
     container_name: pytorch-service
     gpus: all
     ipc: host
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:${PYTORCH_PORT:-32000}:9000"
-    restart: ${RESTART_POLICY:-no}
+      - "${BIND_ADDR:-127.0.0.1}:${PYTORCH_PUBLIC_PORT:-32000}:9000"
+    restart: ${RESTART_POLICY:-unless-stopped}
     volumes:
       - ${MODELS_ROOT:-/home/zhenz/ai-stack/models}:/models:ro
-      - ${WHISPER_CACHE:-~/.cache/whisper}:/root/.cache/whisper
+      - ${CACHE_ROOT:-/home/zhenz/ai-stack/cache}:/cache
+    environment:
+      - MODELS_ROOT=/models
+      - CACHE_ROOT=/cache

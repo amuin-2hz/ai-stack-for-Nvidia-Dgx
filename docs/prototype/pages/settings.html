@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>settings</title>
+  <link rel="stylesheet" href="../style/settings.css">
+</head>
+<body>
+  <div class="pageShell">
+    <main class="mainLayout">
+      <aside class="sideNav isExpanded" id="sideNav">
+        <div class="sideNavHeader">
+          <span class="sideNavMiniLogo">A</span>
+          <div class="sideNavHeaderText">
+            <strong>AI工作站</strong>
+            <span>AMUIN AI STACK</span>
+          </div>
+        </div>
+
+        <nav class="sideNavMenu" aria-label="主菜单">
+          <a class="sideNavItem" data-nav-link href="./welcome.html">
+            <span class="sideNavIcon dashboard"></span>
+            <span class="sideNavLabel" data-i18n data-zh="仪表盘" data-en="Dashboard">仪表盘</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./chatTest.html">
+            <span class="sideNavIcon modelTest"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型测试" data-en="Model Testing">模型测试</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./publish.html">
+            <span class="sideNavIcon modelPublish"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型发布" data-en="Model Publish">模型发布</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./modelLibrary.html">
+            <span class="sideNavIcon modelLibrary"></span>
+            <span class="sideNavLabel" data-i18n data-zh="模型库" data-en="Model Library">模型库</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./runtime.html">
+            <span class="sideNavIcon runtime"></span>
+            <span class="sideNavLabel" data-i18n data-zh="运行时" data-en="Runtime">运行时</span>
+          </a>
+          <a class="sideNavItem" data-nav-link href="./systemStatus.html">
+            <span class="sideNavIcon systemStatus"></span>
+            <span class="sideNavLabel" data-i18n data-zh="系统状态" data-en="System Status">系统状态</span>
+          </a>
+          <button class="sideNavItem" type="button">
+            <span class="sideNavIcon tasks"></span>
+            <span class="sideNavLabel" data-i18n data-zh="任务" data-en="Tasks">任务</span>
+          </button>
+        </nav>
+
+        <div class="sideNavFooter">
+          <a class="sideNavItem sideNavFooterItem isActive" data-nav-link href="./settings.html">
+            <span class="sideNavIcon settings"></span>
+            <span class="sideNavLabel" data-i18n data-zh="设置" data-en="Settings">设置</span>
+          </a>
+          <span>v1.1.0</span>
+          <span>2026.06</span>
+        </div>
+      </aside>
+
+      <section class="contentPanel">
+        <div class="settingsWorkbench">
+          <aside class="settingsNavigator">
+            <div class="settingsNavigatorHeader">
+              <strong>Settings</strong>
+            </div>
+
+            <div class="settingsNavigatorGroup">
+              <button class="settingsNavButton isActive" type="button" data-panel-target="generalPanel">
+                <span class="settingsNavDot"></span>
+                <span>General</span>
+              </button>
+              <button class="settingsNavButton" type="button" data-panel-target="appearancePanel">
+                <span class="settingsNavDot"></span>
+                <span>Appearance</span>
+              </button>
+              <button class="settingsNavButton" type="button" data-panel-target="developerPanel">
+                <span class="settingsNavDot"></span>
+                <span>Developer</span>
+              </button>
+              <button class="settingsNavButton" type="button" data-panel-target="runtimePanel">
+                <span class="settingsNavDot"></span>
+                <span>Runtime</span>
+              </button>
+            </div>
+
+            <div class="settingsNavigatorDivider"></div>
+
+            <div class="settingsNavigatorGroup">
+              <div class="settingsNavigatorTitle">System</div>
+              <button class="settingsNavButton" type="button" data-panel-target="networkPanel">
+                <span class="settingsNavDot"></span>
+                <span>Network</span>
+              </button>
+              <button class="settingsNavButton" type="button" data-panel-target="aboutPanel">
+                <span class="settingsNavDot"></span>
+                <span>About</span>
+              </button>
+            </div>
+
+            <div class="settingsAccountCard">
+              <div class="settingsAccountAvatar">A</div>
+              <div>
+                <strong>Account</strong>
+                <span>Signed out</span>
+              </div>
+            </div>
+          </aside>
+
+          <section class="settingsDetailPane">
+            <header class="settingsDetailHeader">
+              <div>
+                <h1 id="panelTitleText">General</h1>
+                <p id="panelDescriptionText">常规体验、更新渠道与默认使用习惯。</p>
+              </div>
+              <button class="closeButton" type="button" aria-label="关闭">×</button>
+            </header>
+
+            <div class="settingsDetailBody">
+              <section class="settingsPanel isActive" id="generalPanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">应用更新</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Installed</div>
+                        <div class="settingDesc">当前已安装版本。</div>
+                      </div>
+                      <div class="settingControl settingValueText">LM Studio 0.4.16 (Build 2)</div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Updates channel</div>
+                        <div class="settingDesc">检查新版本并选择更新通道。</div>
+                      </div>
+                      <div class="settingControl settingInlineGroup">
+                        <button class="actionButton" id="checkUpdateButton" type="button">检查更新</button>
+                        <select class="selectField" id="updateChannelSelect" aria-label="更新通道">
+                          <option value="stable" selected>稳定版</option>
+                          <option value="beta">测试版</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">User Interface</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">语言</div>
+                        <div class="settingDesc">选择应用界面语言。</div>
+                      </div>
+                      <div class="settingControl">
+                        <select class="selectField" id="languageSelect" aria-label="语言选择">
+                          <option value="zh" selected>简体中文</option>
+                          <option value="en">English</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">主题模式</div>
+                        <div class="settingDesc">切换当前设置页的浅色或深色显示。</div>
+                      </div>
+                      <div class="settingControl">
+                        <select class="selectField" id="themeModeSelect" aria-label="主题模式">
+                          <option value="dark" selected>Dark</option>
+                          <option value="light">Light</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">General Settings</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Open downloads pane when starting a new model download</div>
+                        <div class="settingDesc">开始下载新模型时自动展开下载面板。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="下载面板开关" data-setting-key="openDownloadsPane"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Always open full model loader panel</div>
+                        <div class="settingDesc">跳过快速选择器，直接打开完整模型加载面板。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="完整加载面板开关" data-setting-key="openFullModelLoader"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">在我的模型中始终显示完整模型文件名</div>
+                        <div class="settingDesc">便于区分不同量化版本和同名模型文件。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="模型文件名开关" data-setting-key="showFullModelName"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">使用下载代理</div>
+                        <div class="settingDesc">通过代理拉取模型文件，提高下载稳定性。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="下载代理开关" data-setting-key="useDownloadProxy"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Preset confirmation</div>
+                        <div class="settingDesc">保存预设前显示确认对话框。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="预设确认开关" data-setting-key="presetConfirmation"></button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">Models Directory</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">Model downloads and indexing location</div>
+                        <div class="settingDesc">当前模型下载与索引目录：<span class="inlineCode">E:\Models\Amuin</span></div>
+                      </div>
+                      <div class="settingControl">
+                        <button class="actionButton" type="button">打开目录</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settingsPanel" id="appearancePanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">Appearance</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">紧凑布局</div>
+                        <div class="settingDesc">减少列表与设置项之间的留白。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="紧凑布局开关" data-setting-key="compactLayout"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">界面动画</div>
+                        <div class="settingDesc">启用页面切换和控件过渡动画。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="动画开关" data-setting-key="enableMotion"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">代码字体</div>
+                        <div class="settingDesc">设置终端和日志视图的代码字体。</div>
+                      </div>
+                      <div class="settingControl">
+                        <select class="selectField" aria-label="代码字体">
+                          <option selected>Cascadia Code</option>
+                          <option>Consolas</option>
+                          <option>JetBrains Mono</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settingsPanel" id="developerPanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">Developer</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">开发者模式</div>
+                        <div class="settingDesc">展示高级日志、接口调试和实验入口。</div>
+                      </div>
+                      <button class="switchButton" type="button" role="switch" aria-label="开发者模式开关" data-setting-key="developerMode"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">日志目录</div>
+                        <div class="settingDesc">查看当前运行日志和诊断文件。</div>
+                      </div>
+                      <div class="settingControl">
+                        <button class="actionButton" type="button">打开日志</button>
+                      </div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">API Host</div>
+                        <div class="settingDesc">本机 API 监听地址。</div>
+                      </div>
+                      <div class="settingControl settingValueText" id="apiHostValue">http://localhost:8888</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settingsPanel" id="runtimePanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">Runtime</h2>
+                  <div class="settingsList">
+                    <div class="settingRow settingRowLarge">
+                      <div class="settingMain">
+                        <div class="settingLabel">管理端口</div>
+                        <div class="settingDesc">设置控制台监听端口，保存后会同步更新调用地址与配置地址。</div>
+                        <div class="settingMetaLine">调用地址：<strong id="accessUrlValue">http://localhost:8888</strong></div>
+                        <div class="settingMetaLine">配置地址：<strong id="configUrlValue">http://localhost:8888</strong></div>
+                      </div>
+                      <div class="settingControl settingControlStack">
+                        <input class="textField" id="consolePortInput" type="text" value="8888" inputmode="numeric" aria-label="管理端口">
+                        <button class="actionButton actionButtonPrimary" id="savePortButton" type="button">保存配置</button>
+                      </div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">局域网访问</div>
+                        <div class="settingDesc">允许其他设备通过局域网访问当前控制台。</div>
+                      </div>
+                      <button class="switchButton" id="lanToggleButton" type="button" role="switch" aria-label="局域网访问开关"></button>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">当前绑定</div>
+                        <div class="settingDesc">当前监听地址。</div>
+                      </div>
+                      <div class="settingControl settingValueText" id="currentBindValue">0.0.0.0</div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">目标绑定</div>
+                        <div class="settingDesc">保存配置后将应用的监听地址。</div>
+                      </div>
+                      <div class="settingControl settingValueText" id="targetBindValue">0.0.0.0</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settingsPanel" id="networkPanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">Network</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">访问范围</div>
+                        <div class="settingDesc">当前允许访问的网络范围。</div>
+                      </div>
+                      <div class="settingControl settingValueText" id="accessScopeValue">局域网与本机</div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">绑定提示</div>
+                        <div class="settingDesc">网络绑定策略说明。</div>
+                      </div>
+                      <div class="settingControl settingValueText settingValueWide" id="bindHintText">关闭局域网时绑定 127.0.0.1；开启时绑定 0.0.0.0。</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settingsPanel" id="aboutPanel">
+                <div class="settingsSection">
+                  <h2 class="settingsSectionTitle">About</h2>
+                  <div class="settingsList">
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">产品名称</div>
+                        <div class="settingDesc">当前演示壳层名称。</div>
+                      </div>
+                      <div class="settingControl settingValueText">Amuin AI Stack</div>
+                    </div>
+                    <div class="settingRow">
+                      <div class="settingMain">
+                        <div class="settingLabel">版本</div>
+                        <div class="settingDesc">当前页面版本号。</div>
+                      </div>
+                      <div class="settingControl settingValueText">v1.1.0</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const frameState = {
+      currentLanguage: "zh",
+      currentTheme: "dark",
+      currentSidebar: "expanded",
+      currentPanel: "generalPanel",
+      consolePort: "8888",
+      lanEnabled: true,
+      openDownloadsPane: false,
+      openFullModelLoader: false,
+      showFullModelName: false,
+      useDownloadProxy: true,
+      presetConfirmation: false,
+      compactLayout: false,
+      enableMotion: true,
+      developerMode: false
+    };
+
+    const panelMetaMap = {
+      generalPanel: {
+        title: "General",
+        description: "常规体验、更新渠道与默认使用习惯。"
+      },
+      appearancePanel: {
+        title: "Appearance",
+        description: "界面风格、布局密度与视觉细节。"
+      },
+      developerPanel: {
+        title: "Developer",
+        description: "日志、调试能力与开发模式开关。"
+      },
+      runtimePanel: {
+        title: "Runtime",
+        description: "端口、控制台地址与运行时监听设置。"
+      },
+      networkPanel: {
+        title: "Network",
+        description: "局域网访问、绑定地址与访问范围。"
+      },
+      aboutPanel: {
+        title: "About",
+        description: "产品信息与版本说明。"
+      }
+    };
+
+    const sideNav = document.getElementById("sideNav");
+    const i18nNodeList = document.querySelectorAll("[data-i18n]");
+    const queryLinkNodeList = document.querySelectorAll("a[href]:not([href^='javascript'])");
+    const panelTitleText = document.getElementById("panelTitleText");
+    const panelDescriptionText = document.getElementById("panelDescriptionText");
+    const settingsNavButtonNodeList = document.querySelectorAll(".settingsNavButton");
+    const settingsPanelNodeList = document.querySelectorAll(".settingsPanel");
+    const switchButtonNodeList = document.querySelectorAll(".switchButton[data-setting-key]");
+    const languageSelect = document.getElementById("languageSelect");
+    const themeModeSelect = document.getElementById("themeModeSelect");
+    const consolePortInput = document.getElementById("consolePortInput");
+    const savePortButton = document.getElementById("savePortButton");
+    const accessUrlValue = document.getElementById("accessUrlValue");
+    const configUrlValue = document.getElementById("configUrlValue");
+    const apiHostValue = document.getElementById("apiHostValue");
+    const lanToggleButton = document.getElementById("lanToggleButton");
+    const currentBindValue = document.getElementById("currentBindValue");
+    const targetBindValue = document.getElementById("targetBindValue");
+    const accessScopeValue = document.getElementById("accessScopeValue");
+    const bindHintText = document.getElementById("bindHintText");
+
+    /**
+     * 从地址参数中提取当前页面语言、主题与侧栏状态。
+     */
+    function syncStateFromQuery() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const languageValue = searchParams.get("lang");
+      const themeValue = searchParams.get("theme");
+      const sidebarValue = searchParams.get("sidebar");
+
+      if (languageValue === "en") {
+        frameState.currentLanguage = "en";
+      }
+
+      if (themeValue === "light") {
+        frameState.currentTheme = "light";
+      }
+
+      frameState.currentSidebar = sidebarValue === "collapsed" ? "collapsed" : "expanded";
+    }
+
+    /**
+     * 根据当前语言刷新页面文案。
+     */
+    function refreshFrameLanguage() {
+      const languageKey = frameState.currentLanguage === "zh" ? "zh" : "en";
+
+      i18nNodeList.forEach((nodeItem) => {
+        const textValue = nodeItem.dataset[languageKey];
+
+        if (textValue) {
+          nodeItem.textContent = textValue;
+        }
+      });
+
+      languageSelect.value = frameState.currentLanguage;
+    }
+
+    /**
+     * 根据当前主题刷新页面视觉模式。
+     */
+    function refreshFrameTheme() {
+      document.body.classList.toggle("themeLight", frameState.currentTheme === "light");
+      document.documentElement.lang = frameState.currentLanguage === "zh" ? "zh-CN" : "en";
+      themeModeSelect.value = frameState.currentTheme;
+    }
+
+    /**
+     * 根据当前参数更新侧边栏展开状态。
+     */
+    function refreshSidebarState() {
+      const isCollapsed = frameState.currentSidebar === "collapsed";
+
+      sideNav.classList.toggle("isCollapsed", isCollapsed);
+      sideNav.classList.toggle("isExpanded", !isCollapsed);
+      document.documentElement.style.setProperty("--sideNavWidth", isCollapsed ? "72px" : "216px");
+    }
+
+    /**
+     * 根据当前激活分类刷新左侧导航与右侧面板。
+     */
+    function refreshSettingsPanels() {
+      const currentPanelMeta = panelMetaMap[frameState.currentPanel];
+
+      settingsNavButtonNodeList.forEach((buttonItem) => {
+        const isActive = buttonItem.dataset.panelTarget === frameState.currentPanel;
+
+        buttonItem.classList.toggle("isActive", isActive);
+        buttonItem.setAttribute("aria-pressed", String(isActive));
+      });
+
+      settingsPanelNodeList.forEach((panelItem) => {
+        panelItem.classList.toggle("isActive", panelItem.id === frameState.currentPanel);
+      });
+
+      panelTitleText.textContent = currentPanelMeta.title;
+      panelDescriptionText.textContent = currentPanelMeta.description;
+    }
+
+    /**
+     * 根据状态刷新所有开关控件的视觉状态。
+     */
+    function refreshToggleButtons() {
+      switchButtonNodeList.forEach((buttonItem) => {
+        const settingKey = buttonItem.dataset.settingKey;
+        const isEnabled = Boolean(frameState[settingKey]);
+
+        buttonItem.classList.toggle("isOff", !isEnabled);
+        buttonItem.setAttribute("aria-checked", String(isEnabled));
+      });
+
+      lanToggleButton.classList.toggle("isOff", !frameState.lanEnabled);
+      lanToggleButton.setAttribute("aria-checked", String(frameState.lanEnabled));
+    }
+
+    /**
+     * 生成当前控制台的本机地址。
+     */
+    function buildConsoleUrl() {
+      return "http://localhost:" + frameState.consolePort;
+    }
+
+    /**
+     * 根据当前端口刷新地址展示。
+     */
+    function refreshConsoleAddresses() {
+      const consoleUrl = buildConsoleUrl();
+
+      consolePortInput.value = frameState.consolePort;
+      accessUrlValue.textContent = consoleUrl;
+      configUrlValue.textContent = consoleUrl;
+      apiHostValue.textContent = consoleUrl;
+    }
+
+    /**
+     * 根据局域网开关刷新网络绑定相关展示。
+     */
+    function refreshNetworkState() {
+      const currentBindAddress = frameState.lanEnabled ? "0.0.0.0" : "127.0.0.1";
+
+      currentBindValue.textContent = currentBindAddress;
+      targetBindValue.textContent = currentBindAddress;
+      accessScopeValue.textContent = frameState.lanEnabled ? "局域网与本机" : "仅本机";
+      bindHintText.textContent = frameState.lanEnabled
+        ? "开启局域网时绑定 0.0.0.0，允许其他设备访问当前控制台。"
+        : "关闭局域网时绑定 127.0.0.1，仅允许本机访问当前控制台。";
+
+      refreshToggleButtons();
+    }
+
+    /**
+     * 按规则清洗端口输入，只保留 1 到 5 位数字。
+     */
+    function sanitizePortValue(rawValue) {
+      const digitValue = rawValue.replace(/\D/g, "").slice(0, 5);
+
+      if (!digitValue) {
+        return "8888";
+      }
+
+      const portNumber = Number(digitValue);
+
+      if (portNumber < 1 || portNumber > 65535) {
+        return "8888";
+      }
+
+      return String(portNumber);
+    }
+
+    /**
+     * 保存控制台端口并刷新相关地址。
+     */
+    function saveConsolePort() {
+      frameState.consolePort = sanitizePortValue(consolePortInput.value);
+      refreshConsoleAddresses();
+    }
+
+    /**
+     * 切换单个布尔设置项的启用状态。
+     */
+    function toggleSettingItem(event) {
+      const targetButton = event.currentTarget;
+      const settingKey = targetButton.dataset.settingKey;
+
+      frameState[settingKey] = !frameState[settingKey];
+      refreshToggleButtons();
+    }
+
+    /**
+     * 切换局域网访问状态。
+     */
+    function toggleLanAccess() {
+      frameState.lanEnabled = !frameState.lanEnabled;
+      refreshNetworkState();
+    }
+
+    /**
+     * 切换当前设置分类。
+     */
+    function switchSettingsPanel(event) {
+      frameState.currentPanel = event.currentTarget.dataset.panelTarget;
+      refreshSettingsPanels();
+    }
+
+    /**
+     * 切换界面语言并同步文案。
+     */
+    function changeInterfaceLanguage() {
+      frameState.currentLanguage = languageSelect.value;
+      refreshFrameLanguage();
+      refreshFrameTheme();
+      refreshSettingsPanels();
+      syncQueryLinks();
+    }
+
+    /**
+     * 切换当前设置页主题模式。
+     */
+    function changeThemeMode() {
+      frameState.currentTheme = themeModeSelect.value;
+      refreshFrameTheme();
+      syncQueryLinks();
+    }
+
+    /**
+     * 保持页面跳转时的语言、主题和侧栏状态。
+     */
+    function syncQueryLinks() {
+      queryLinkNodeList.forEach((linkNode) => {
+        const linkUrl = new URL(linkNode.getAttribute("href"), window.location.href);
+
+        linkUrl.searchParams.set("lang", frameState.currentLanguage);
+        linkUrl.searchParams.set("theme", frameState.currentTheme);
+        linkUrl.searchParams.set("sidebar", frameState.currentSidebar);
+
+        linkNode.href = linkUrl.toString();
+      });
+    }
+
+    /**
+     * 绑定设置页内部交互事件。
+     */
+    function bindSettingsEvents() {
+      settingsNavButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", switchSettingsPanel);
+      });
+
+      switchButtonNodeList.forEach((buttonItem) => {
+        buttonItem.addEventListener("click", toggleSettingItem);
+      });
+
+      languageSelect.addEventListener("change", changeInterfaceLanguage);
+      themeModeSelect.addEventListener("change", changeThemeMode);
+      savePortButton.addEventListener("click", saveConsolePort);
+      consolePortInput.addEventListener("blur", saveConsolePort);
+      lanToggleButton.addEventListener("click", toggleLanAccess);
+    }
+
+    syncStateFromQuery();
+    refreshFrameLanguage();
+    refreshFrameTheme();
+    refreshSidebarState();
+    refreshSettingsPanels();
+    refreshConsoleAddresses();
+    refreshNetworkState();
+    refreshToggleButtons();
+    syncQueryLinks();
+    bindSettingsEvents();
+  </script>
+</body>
+</html>

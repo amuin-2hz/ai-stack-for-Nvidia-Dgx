@@ -28,8 +28,8 @@ export interface FormatMatchParams {
 /* ── audio detection helper ────────────────────── */
 function looksLikeAudio(path: string, names: Set<string>): boolean {
   const lower = path.toLowerCase().replace(/[/\\]/g, "").split("/").pop() ?? "";
-  return ["whisper", "fun-asr", "funasr", "cosyvoice"].some((token) => lower.includes(token)) ||
-    ["cosyvoice.yaml", "vocabulary.txt", "spk2info.pt", "flow.pt", "hift.pt", "multilingual.tiktoken"].some((name) => names.has(name));
+  return ["whisper", "fun-asr", "funasr", "cosyvoice", "tts", "asr", "speech", "speaker", "campplus", "eres2net", "sensevoice", "speech-tokenizer", "speech_tokenizer", "vibevoice"].some((token) => lower.includes(token)) ||
+    ["cosyvoice.yaml", "vocabulary.txt", "spk2info.pt", "flow.pt", "hift.pt", "multilingual.tiktoken", "speech_tokenizer", "speech-tokenizer", "campplus_cn_common.bin", "config.yaml"].some((name) => names.has(name));
 }
 
 /* ── capability detection helper ───────────────── */
@@ -38,8 +38,13 @@ function audioCapabilities(path: string, names: Set<string>, config: Record<stri
   const lower = path.toLowerCase();
   const architectures = Array.isArray(config.architectures) ? config.architectures.map(String).join(" ").toLowerCase() : "";
   const modelType = String(config.model_type ?? "").toLowerCase();
+  if (lower.includes("vibevoice")) return ["asr"];
   if (lower.includes("cosyvoice") || lower.includes("tts") || lower.includes("vits") ||
       architectures.includes("cosyvoice") || modelType.includes("cosyvoice")) return ["tts"];
+  if (/(speaker[-_ ]?diari|diarization|sd_model)/.test(lower)) return ["speaker-diarization"];
+  if (/(speaker[-_ ]?(verification|recognition)|(?:^|[-_])sv(?:[-_]|$)|campplus|eres2net)/.test(lower)) {
+    return ["speaker-verification"];
+  }
   return ["asr"];
 }
 
@@ -68,14 +73,81 @@ export const formatStrategies: FormatStrategy[] = [
     }
   },
   {
+    name: "qwen3_tts",
+    matches: ({ path, config }) => {
+      const architectures = Array.isArray(config.architectures) ? config.architectures.map(String).join(" ").toLowerCase() : "";
+      const modelType = String(config.model_type ?? "").toLowerCase();
+      return /qwen3[-_ ]?tts/.test([path, architectures, modelType].join(" ").toLowerCase());
+    },
+    runtime: { preferred: "qwen3-tts", supported: ["qwen3-tts"] },
+    compatibility: {
+      "qwen3-tts": { status: "compatible", reason: "Use the dedicated Qwen3-TTS gateway for speech synthesis, voice design, or voice cloning." },
+      vllm: { status: "unsupported", reason: "Qwen3-TTS online serving uses the dedicated qwen-tts adapter; vLLM-Omni support is currently an offline inference path." },
+      trtllm: { status: "unsupported", reason: "Qwen3-TTS has no validated TensorRT-LLM online serving profile." },
+      pytorch: { status: "unsupported", reason: "The generic PyTorch slot does not include the Qwen3-TTS API adapter and pinned dependencies." },
+      lmstudio: { status: "unsupported", reason: "Qwen3-TTS checkpoints are not GGUF files." }
+    }
+  },
+  {
+    name: "vibevoice",
+    matches: ({ path, config }) => {
+      const lower = path.toLowerCase();
+      const architectures = Array.isArray(config.architectures) ? config.architectures.map(String).join(" ").toLowerCase() : "";
+      const modelType = String(config.model_type ?? "").toLowerCase();
+      return lower.includes("vibevoice") || architectures.includes("vibevoice") || modelType.includes("vibevoice");
+    },
+    runtime: { preferred: "vibevoice-hf", supported: ["vibevoice-hf"] },
+    compatibility: {
+      vllm: { status: "unsupported", reason: "VibeVoice uses a custom Hugging Face ASR adapter, not the vLLM API server." },
+      trtllm: { status: "unsupported", reason: "VibeVoice is served by the custom VibeVoice HF runtime, not TensorRT-LLM." },
+      pytorch: { status: "unsupported", reason: "The default PyTorch container is only a generic environment; use the VibeVoice HF runtime." },
+      lmstudio: { status: "unsupported", reason: "VibeVoice checkpoints are not GGUF files." }
+    }
+  },
+  {
     name: "audio",
     matches: ({ path, names }) => looksLikeAudio(path, names),
-    runtime: { preferred: "pytorch", supported: ["pytorch"] },
+    runtime: { preferred: "funasr-gateway", supported: ["funasr-gateway"] },
     compatibility: {
       vllm: { status: "unsupported", reason: "Audio models use ASR/TTS-specific files and are not vLLM checkpoints." },
-      trtllm: { status: "unsupported", reason: "Audio models use the PyTorch runtime, not TensorRT-LLM." },
-      pytorch: { status: "compatible", reason: "Directory matches the local ASR/TTS service model layout." },
+      trtllm: { status: "unsupported", reason: "Audio models need the custom FunASR Gateway runtime, not TensorRT-LLM." },
+      pytorch: { status: "unsupported", reason: "Audio models need the custom FunASR Gateway runtime; the default PyTorch container is only a generic environment." },
       lmstudio: { status: "unsupported", reason: "Audio service directories are not GGUF files." }
+    }
+  },
+  {
+    name: "locate_anything",
+    matches: ({ path, config }) => {
+      const architectures = Array.isArray(config.architectures) ? config.architectures.map(String).join(" ").toLowerCase() : "";
+      const modelType = String(config.model_type ?? "").toLowerCase();
+      return /locate[-_ ]?anything/.test([path, architectures, modelType].join(" ").toLowerCase());
+    },
+    runtime: { preferred: "locate-anything", supported: ["locate-anything"] },
+    compatibility: {
+      "locate-anything": { status: "compatible", reason: "Use the dedicated LocateAnything Transformers runtime with PEFT and the model's remote code." },
+      vllm: { status: "unsupported", reason: "LocateAnythingForConditionalGeneration is not supported by vLLM." },
+      trtllm: { status: "unsupported", reason: "LocateAnything does not include a TensorRT-LLM engine and has no validated TensorRT-LLM conversion path." },
+      pytorch: { status: "unsupported", reason: "The generic PyTorch slot does not include the LocateAnything API adapter and model dependencies." },
+      lmstudio: { status: "unsupported", reason: "LocateAnything checkpoints are not GGUF files." }
+    }
+  },
+  {
+    name: "mlx_safetensors",
+    matches: ({ path, files, config }) => {
+      const quantization = config.quantization;
+      const hasMlxQuantization = quantization !== null
+        && typeof quantization === "object"
+        && !Array.isArray(quantization)
+        && ("bits" in quantization || "group_size" in quantization);
+      return files.some((file) => file.endsWith(".safetensors"))
+        && (/(?:^|[-_/])mlx(?:$|[-_/])/.test(path.toLowerCase()) || hasMlxQuantization);
+    },
+    runtime: { preferred: "mlx", supported: ["mlx"] },
+    compatibility: {
+      vllm: { status: "unsupported", reason: "MLX-packed safetensors are for Apple MLX and cannot be loaded by vLLM." },
+      trtllm: { status: "unsupported", reason: "MLX-packed safetensors are not TensorRT-LLM checkpoints." },
+      pytorch: { status: "unsupported", reason: "MLX-packed safetensors are not standard PyTorch checkpoints." },
+      lmstudio: { status: "unsupported", reason: "MLX checkpoints are not GGUF files." }
     }
   },
   {
@@ -142,15 +214,23 @@ export function detectCapabilities(params: FormatMatchParams): string[] {
   const lower = path.toLowerCase();
   const architectures = Array.isArray(config.architectures) ? config.architectures.map(String).join(" ").toLowerCase() : "";
   const modelType = String(config.model_type ?? "").toLowerCase();
+  const visionConfig = config.vision_config && typeof config.vision_config === "object" && !Array.isArray(config.vision_config)
+    ? config.vision_config as Record<string, unknown>
+    : {};
+  const visionType = String(visionConfig.model_type ?? "").toLowerCase();
+  const text = [lower, architectures, modelType, visionType].join(" ");
+
+  if (/locate[-_ ]?anything/.test(text)) return ["vision", "visual-grounding"];
+
+  // Rerankers use score/rerank APIs rather than embeddings.
+  if (text.includes("rerank") || architectures.includes("sequenceclassification")) return ["reranker"];
 
   // Embedding models
-  if (lower.includes("embed") || architectures.includes("embedding") ||
+  if (text.includes("embed") || architectures.includes("embedding") ||
       (modelType.includes("bert") && !architectures.includes("causallm"))) return ["embeddings"];
 
-  // Vision/multimodal
-  if (["vl", "vision", "multimodal", "qwen2_5_vl", "llava"].some(
-    (t) => lower.includes(t) || modelType.includes(t) || architectures.includes(t)
-  )) return ["chat", "vision"];
+  // Vision/multimodal, including OCR/document-understanding VLMs.
+  if (/(\bvl\b|vision|multimodal|qwen2_5_vl|llava|ocr|document|image[-_ ]?to[-_ ]?text)/.test(text)) return ["chat", "vision"];
 
   // Text generation
   if (architectures.includes("causallm") || modelType ||
@@ -163,12 +243,47 @@ export function detectCapabilities(params: FormatMatchParams): string[] {
 
 /* ── map capabilities to compatibility ─────────── */
 export function compatibilityForModel(format: string, capabilities: string[], configs: string[]): Record<string, CompatibilityInfo> {
+  if (format === "mlx_safetensors") {
+    return {
+      vllm: { status: "unsupported", reason: "MLX-packed safetensors are for Apple MLX and cannot be loaded by vLLM." },
+      trtllm: { status: "unsupported", reason: "MLX-packed safetensors are not TensorRT-LLM checkpoints." },
+      pytorch: { status: "unsupported", reason: "MLX-packed safetensors are not standard PyTorch checkpoints." },
+      lmstudio: { status: "unsupported", reason: "MLX checkpoints are not GGUF files." }
+    };
+  }
+  if (format === "vibevoice") {
+    return {
+      "vibevoice-hf": { status: "compatible", reason: "Use the dedicated VibeVoice Hugging Face ASR adapter." },
+      vllm: { status: "unsupported", reason: "VibeVoice uses a custom Hugging Face ASR adapter, not the vLLM API server." },
+      trtllm: { status: "unsupported", reason: "VibeVoice is served by the custom VibeVoice HF runtime, not TensorRT-LLM." },
+      pytorch: { status: "unsupported", reason: "The default PyTorch container is only a generic environment; use the VibeVoice HF runtime." },
+      lmstudio: { status: "unsupported", reason: "VibeVoice checkpoints are not GGUF files." }
+    };
+  }
+  if (format === "qwen3_tts") {
+    return {
+      "qwen3-tts": { status: "compatible", reason: "Use the dedicated Qwen3-TTS gateway for speech synthesis, voice design, or voice cloning." },
+      vllm: { status: "unsupported", reason: "Qwen3-TTS online serving uses the dedicated qwen-tts adapter; vLLM-Omni support is currently an offline inference path." },
+      trtllm: { status: "unsupported", reason: "Qwen3-TTS has no validated TensorRT-LLM online serving profile." },
+      pytorch: { status: "unsupported", reason: "The generic PyTorch slot does not include the Qwen3-TTS API adapter and pinned dependencies." },
+      lmstudio: { status: "unsupported", reason: "Qwen3-TTS checkpoints are not GGUF files." }
+    };
+  }
+  if (capabilities.includes("visual-grounding")) {
+    return {
+      "locate-anything": { status: "compatible", reason: "Use the dedicated LocateAnything Transformers runtime with PEFT and the model's remote code." },
+      vllm: { status: "unsupported", reason: "LocateAnythingForConditionalGeneration is not supported by vLLM." },
+      trtllm: { status: "unsupported", reason: "LocateAnything does not include a TensorRT-LLM engine and has no validated TensorRT-LLM conversion path." },
+      pytorch: { status: "unsupported", reason: "The generic PyTorch slot does not include the LocateAnything API adapter and model dependencies." },
+      lmstudio: { status: "unsupported", reason: "LocateAnything checkpoints are not GGUF files." }
+    };
+  }
   // For audio models detected via capabilities
-  if (capabilities.some((cap) => ["asr", "tts"].includes(cap))) {
+  if (capabilities.some((cap) => ["asr", "tts", "speaker-verification", "speaker-diarization"].includes(cap))) {
     return {
       vllm: { status: "unsupported", reason: "Audio models use ASR/TTS-specific files and are not vLLM checkpoints." },
-      trtllm: { status: "unsupported", reason: "Audio models use the PyTorch runtime, not TensorRT-LLM." },
-      pytorch: { status: "compatible", reason: "Directory matches the local ASR/TTS service model layout." },
+      trtllm: { status: "unsupported", reason: "Audio models need the custom FunASR Gateway runtime, not TensorRT-LLM." },
+      pytorch: { status: "unsupported", reason: "Audio models need the custom FunASR Gateway runtime; the default PyTorch container is only a generic environment." },
       lmstudio: { status: "unsupported", reason: "Audio service directories are not GGUF files." }
     };
   }

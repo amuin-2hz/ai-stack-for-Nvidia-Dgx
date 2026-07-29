@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { RepairAction, TaskDiagnostic } from "./types.js";
 
-type DiagnosableTask = { status: string; error?: string; log_path?: string; metadata?: Record<string, unknown> };
+type DiagnosableTask = { type?: string; status: string; error?: string; log_path?: string; metadata?: Record<string, unknown> };
 
 type DiagnosticRule = {
   category: string;
@@ -13,6 +13,17 @@ type DiagnosticRule = {
 };
 
 const rules: DiagnosticRule[] = [
+  {
+    category: "download_network_failed",
+    severity: "error",
+    stage: "download",
+    patterns: [/ProxyError/i, /Unable to connect to proxy/i, /MaxRetryError/i, /ReadTimeoutError/i, /Read timed out/i, /The read operation timed out/i, /Failed to establish a new connection/i, /NameResolutionError/i, /network is unreachable/i],
+    message: "Download network or proxy request failed.",
+    repair_actions: [
+      { action: "check_network", label: "Check network or proxy settings." },
+      { action: "redownload_model", label: "Clean staged files and retry the download." }
+    ]
+  },
   {
     category: "docker_unavailable",
     severity: "error",
@@ -61,12 +72,13 @@ const rules: DiagnosticRule[] = [
   {
     category: "gpu_memory_insufficient",
     severity: "error",
-    stage: "start",
+    stage: "load",
     patterns: [/CUDA out of memory/i, /out of memory/i, /insufficient.*memory/i, /No available memory/i, /no CUDA-capable device/i, /NVIDIA.*driver/i],
     message: "GPU memory is insufficient for this task.",
     repair_actions: [
-      { action: "lower_context_length", label: "Lower context length or max tokens." },
+      { action: "increase_gpu_memory_utilization", label: "Increase GPU memory utilization." },
       { action: "stop_other_runtimes", label: "Stop other GPU runtimes." },
+      { action: "lower_context_length", label: "Lower context length or max tokens." },
       { action: "choose_smaller_model", label: "Choose a smaller or quantized model." }
     ]
   },
@@ -74,7 +86,7 @@ const rules: DiagnosticRule[] = [
     category: "vllm_args_incompatible",
     severity: "error",
     stage: "start",
-    patterns: [/unrecognized arguments/i, /invalid choice/i, /max_model_len/i, /tensor_parallel_size/i, /kv_cache_dtype/i],
+    patterns: [/unrecognized arguments/i, /invalid choice/i, /error: argument .*max[_-]model[_-]len/i, /error: argument .*tensor[_-]parallel[_-]size/i, /error: argument .*kv[_-]cache[_-]dtype/i],
     message: "vLLM rejected one or more runtime parameters.",
     repair_actions: [
       { action: "reset_runtime_params", label: "Reset vLLM parameters to defaults." },
@@ -100,6 +112,7 @@ export async function diagnoseTask(task: DiagnosableTask): Promise<TaskDiagnosti
   const haystack = [task.error, log].filter(Boolean).join("\n");
   if (!haystack) return undefined;
   for (const rule of rules) {
+    if (task.type === "download" && rule.category === "health_check_timeout") continue;
     if (rule.patterns.some((pattern) => pattern.test(haystack))) {
       return { category: rule.category, severity: rule.severity, stage: rule.stage, message: rule.message, repair_actions: rule.repair_actions };
     }
@@ -117,7 +130,7 @@ function runtimePlanStage(task: DiagnosableTask): TaskDiagnostic["stage"] | unde
   const plan = task.metadata?.runtime_plan;
   if (!plan || typeof plan !== "object") return undefined;
   const stage = (plan as { current_stage?: unknown }).current_stage;
-  if (["prepare", "pull", "start", "health"].includes(String(stage))) return stage as TaskDiagnostic["stage"];
+  if (["prepare", "pull", "start", "load", "health"].includes(String(stage))) return stage as TaskDiagnostic["stage"];
   return undefined;
 }
 

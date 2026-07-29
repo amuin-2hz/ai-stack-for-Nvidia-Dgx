@@ -41,6 +41,35 @@ start_xvfb() {
   return 0
 }
 
+
+api_ready() {
+  curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1
+}
+
+wait_for_api() {
+  local url="http://127.0.0.1:${API_PORT}/healthz"
+  local timeout="${API_START_TIMEOUT:-30}"
+  local waited=0
+
+  echo "[web] Waiting for API at ${url} ..."
+  while [[ $waited -lt $timeout ]]; do
+    if [[ -n "${API_PID:-}" ]] && ! kill -0 "$API_PID" 2>/dev/null; then
+      echo "[web] API process exited before becoming ready"
+      wait "$API_PID" || true
+      return 1
+    fi
+    if api_ready; then
+      echo "[web] API is ready"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  echo "[web] Timed out waiting for API after ${timeout}s"
+  return 1
+}
+
 stop_xvfb() {
   if [[ -n "${XVFB_PID:-}" ]] && kill -0 "$XVFB_PID" 2>/dev/null; then
     echo "[xvfb] Stopping Xvfb (pid=$XVFB_PID)"
@@ -60,17 +89,27 @@ launch_web() {
   # Trap cleanup on exit
   trap 'kill 0' EXIT INT TERM
 
-  # Start API
-  "${BASE_DIR}/scripts/dev-api.sh" &
-  API_PID=$!
+  # Start API unless another dev API is already serving this port.
+  if api_ready; then
+    API_PID=""
+    echo "[web] API already running on ${API_PORT}; reusing existing service"
+  else
+    "${BASE_DIR}/scripts/dev-api.sh" &
+    API_PID=$!
+    wait_for_api
+  fi
 
   # Start frontend (Vite)
   "${BASE_DIR}/scripts/dev-frontend.sh" &
   FRONTEND_PID=$!
 
-  echo "[web] API pid=${API_PID}  |  Vite pid=${FRONTEND_PID}"
+  echo "[web] API pid=${API_PID:-external}  |  Vite pid=${FRONTEND_PID}"
   echo "[web] Press Ctrl+C to stop all servers"
-  wait -n "${API_PID}" "${FRONTEND_PID}" || true
+  if [[ -n "${API_PID:-}" ]]; then
+    wait -n "${API_PID}" "${FRONTEND_PID}" || true
+  else
+    wait "${FRONTEND_PID}" || true
+  fi
 }
 
 launch_electron() {

@@ -17,7 +17,9 @@ const PRIVILEGED_PATHS: Array<{ method: string; path: string }> = [
   { method: "DELETE", path: "/models/" },
   { method: "POST", path: "/settings/" },
   { method: "DELETE", path: "/containers/" },
+  { method: "POST", path: "/containers/cleanup-failed" },
   { method: "POST", path: "/containers/custom" },
+  { method: "PUT", path: "/containers/custom" },
 ];
 
 export function requiresElectronPrivilege(method: string, path: string): boolean {

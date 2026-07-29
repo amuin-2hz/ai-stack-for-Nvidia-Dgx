@@ -135,13 +135,110 @@ export function register(
   });
 
   route("DELETE", "/collections/:collection_name", async (_req: any, res: any, params: any) => {
-    sendJson(res, 501, { message: `Collection ${params.collection_name} deletion is not implemented yet.` });
+    sendJson(res, 200, {
+      ok: true,
+      collection_name: params.collection_name,
+      legacy: true,
+      detail: "No local vector collection backend is configured; nothing was deleted."
+    });
   });
 
   /* audio proxy */
   route("GET", "/audio/models", async (_req: any, res: any) => {
-    const result = await proxyHttp("GET", `${audioServiceUrl}/v1/models`);
-    if (!result.ok) return sendJson(res, 502, { detail: result.body || "Audio service unavailable" });
-    sendJson(res, 200, JSON.parse(result.body));
+    const targets = audioServiceTargets(audioServiceUrl);
+    const failures: Array<{ target: string; detail: string }> = [];
+    for (const target of targets) {
+      const result = await proxyHttp("GET", `${target}/v1/models`);
+      if (!result.ok) {
+        failures.push({ target, detail: result.body || "Audio service unavailable" });
+        continue;
+      }
+      try {
+        return sendJson(res, 200, JSON.parse(result.body));
+      } catch {
+        failures.push({ target, detail: "Audio service returned invalid JSON." });
+      }
+    }
+    return sendJson(res, 502, {
+      detail: "FunASR Gateway unavailable. Start deploy/compose/custom/docker-compose.funasr-gateway.yml or set AUDIO_SERVICE_URL.",
+      targets,
+      failures
+    });
   });
+
+  route("POST", "/audio/transcriptions", async (req: any, res: any) => {
+    await proxyAudioMultipart(req, res, audioServiceUrl, "/transcription/transcribe");
+  });
+
+  route("POST", "/audio/speaker-verifications", async (req: any, res: any) => {
+    await proxyAudioMultipart(req, res, audioServiceUrl, "/v1/audio/speaker-verifications");
+  });
+}
+
+async function proxyAudioMultipart(
+  req: any,
+  res: any,
+  configuredUrl: string,
+  upstreamPath: string
+): Promise<void> {
+  let body: Buffer;
+  try {
+    body = await readRawBody(req, 100 * 1024 * 1024);
+  } catch (error) {
+    sendJson(res, 413, {
+      detail: error instanceof Error ? error.message : "Audio upload is too large."
+    });
+    return;
+  }
+
+  const contentType = String(req.headers["content-type"] ?? "");
+  if (!contentType.includes("multipart/form-data")) {
+    sendJson(res, 415, { detail: "multipart/form-data with audio files is required." });
+    return;
+  }
+
+  const failures: Array<{ target: string; detail: string }> = [];
+  for (const target of audioServiceTargets(configuredUrl)) {
+    const result = await proxyHttp(
+      "POST",
+      target + upstreamPath,
+      body,
+      {
+        "content-type": contentType,
+        "content-length": String(body.length)
+      }
+    );
+    if (result.ok || result.status !== 502) {
+      res.writeHead(result.status, {
+        "content-type": result.contentType || "application/json; charset=utf-8",
+        "access-control-allow-origin": "*"
+      });
+      res.end(result.body);
+      return;
+    }
+    failures.push({ target, detail: result.body || "Audio service unavailable" });
+  }
+  sendJson(res, 502, {
+    detail: "FunASR Gateway unavailable. Start the audio runtime before testing.",
+    failures
+  });
+}
+
+async function readRawBody(req: any, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > limit) throw new Error("Audio upload exceeds the 100 MB limit.");
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+function audioServiceTargets(configuredUrl: string): string[] {
+  const fallback = process.env.FUNASR_GATEWAY_SERVICE_URL
+    ?? process.env.AUDIO_SERVICE_URL
+    ?? "http://127.0.0.1:" + (process.env.FUNASR_PUBLIC_PORT ?? "8011");
+  return [...new Set([configuredUrl, fallback].map((url) => url.replace(/\/$/, "")))];
 }

@@ -1,15 +1,24 @@
+/**
+ * @author Amuin
+ * @created 2026-06-25
+ * @description 全局状态管理 & 共享逻辑 — 模块级 ref 单例，所有页面/组件共享同一实例。
+ *              Global state & shared logic — module-level ref singleton shared across all pages/components.
+ */
 import { computed, ref } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import type {
   Locale, ThemeMode, View, ServiceType, ModelRecord, DeploymentRecord, TaskRecord,
-  ContainerRecord, ImportPreview, SystemCheck, NetworkSettings, WorkbenchSettings, RuntimeHint
+  ContainerRecord, ImportPreview, SystemCheck, NetworkSettings, ProxySettings, WorkbenchSettings, RuntimeHint
 } from '../types';
 import { messages, statusCopy } from '../locales';
 
 /* ── reactive state ──────────────────────────── */
 export const locale = ref<Locale>((localStorage.getItem('locale') as Locale) || 'zh-CN');
 export const themeMode = ref<ThemeMode>((localStorage.getItem('themeMode') as ThemeMode) || 'light');
-export const view = ref<View>('models');
+document.documentElement.dataset.theme = themeMode.value;
+export const view = ref<View>('dashboard');
+export const sidebarCollapsed = ref(false);
+export const rightPanelCollapsed = ref(false);
 
 export const models = ref<ModelRecord[]>([]);
 export const deployments = ref<DeploymentRecord[]>([]);
@@ -17,6 +26,7 @@ export const tasks = ref<TaskRecord[]>([]);
 export const containers = ref<ContainerRecord[]>([]);
 export const system = ref<SystemCheck | null>(null);
 export const network = ref<NetworkSettings | null>(null);
+export const proxySettings = ref<ProxySettings | null>(null);
 export const workbenchSettings = ref<WorkbenchSettings | null>(null);
 export const managementPort = ref(8888);
 
@@ -24,7 +34,7 @@ export const modelUrl = ref('');
 export const importMessage = ref('');
 export const importPreview = ref<ImportPreview | null>(null);
 
-export const deployModelId = ref('');
+export const deployModelId = ref(localStorage.getItem('deployModelId') || '');
 export const selectedContainerKey = ref('vllm');
 export const selectedTaskId = ref('');
 export const selectedDownloadLogId = ref('');
@@ -40,7 +50,7 @@ export const customAutoRestart = ref(true);
 export const customName = ref('');
 export const customImage = ref('nvcr.io/nvidia/pytorch:25.04-py3');
 export const customModalOpen = ref(false);
-export const customTab = ref<'components' | 'compose'>('components');
+export const customTab = ref<'basics' | 'components' | 'dockerfile' | 'compose'>('basics');
 export const composeYaml = ref('');
 export const composeValidating = ref(false);
 export const composeValidationResult = ref<{ valid: boolean; errors?: string; normalized?: string } | null>(null);
@@ -49,7 +59,7 @@ export const modelListDrawerOpen = ref(false);
 
 export const deployOpenAiModel = ref('');
 export const deployContextLength = ref(4096);
-export const deployGpuUtil = ref(15);
+export const deployGpuUtil = ref(20);
 export const deployMaxSeqs = ref(16);
 export const deployTensorParallel = ref(1);
 export const deployKvCacheDtype = ref('auto');
@@ -71,24 +81,71 @@ export function statusText(status: string): string {
 
 /* ── computed ─────────────────────────────────── */
 export const readyModelList = computed(() => models.value.filter((model) => model.status.download === 'ready'));
-export const modelLibraryList = computed(() => readyModelList.value);
+export const modelLibraryList = computed(() => models.value);
 export const readyModels = computed(() => readyModelList.value.length);
-export const runtimeContainers = computed(() => containers.value.filter((item) => item.runtime !== 'custom'));
+export const runtimeContainers = computed(() => containers.value.filter((item) =>
+  item.category === 'system' || (!item.category && item.runtime !== 'custom')
+));
 export const runningServices = computed(() => containers.value.filter((item) => item.state === 'running').length);
-export const runningDeployments = computed(() => deployments.value.filter((item) => item.status === 'running' || item.openai_models.length));
+export const runningDeployments = computed(() => deployments.value.filter((item) => item.status === 'running'));
 
-const taskRank = (status: string) => status === 'running' || status === 'queued' || status === 'paused' || status === 'canceling' ? 0 : status === 'failed' || status === 'canceled' ? 1 : status === 'succeeded' ? 3 : 2;
-const taskTime = (task: TaskRecord) => task.updated_at || task.started_at || task.created_at || '';
+const taskCreatedTimeValue = (task: TaskRecord) => {
+  const timestamp = Date.parse(task.created_at || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+const compareTasksByRecentTime = (a: TaskRecord, b: TaskRecord) =>
+  taskCreatedTimeValue(b) - taskCreatedTimeValue(a)
+  || b.id.localeCompare(a.id);
+
+const finishedDownloadStatuses = new Set(['succeeded', 'failed', 'canceled']);
+const collapsibleFinishedDownloadStatuses = new Set(['succeeded', 'canceled']);
+
+function finishedDownloadRank(status: string): number {
+  if (status === 'succeeded') return 3;
+  if (status === 'failed') return 2;
+  if (status === 'canceled') return 1;
+  return 0;
+}
+
+function preferFinishedDownload(candidate: TaskRecord, current: TaskRecord): boolean {
+  const recentDiff = compareTasksByRecentTime(candidate, current);
+  if (recentDiff !== 0) return recentDiff < 0;
+  const rankDiff = finishedDownloadRank(candidate.status) - finishedDownloadRank(current.status);
+  return rankDiff > 0;
+}
+
+function downloadTaskDisplayKey(task: TaskRecord): string {
+  return [
+    task.metadata?.target_path,
+    task.metadata?.provider,
+    task.metadata?.repo_id,
+    task.metadata?.alias,
+    task.metadata?.model_id
+  ].filter(Boolean).join(':') || task.id;
+}
 
 export const visibleTasks = computed(() => {
-  const seen = new Set<string>();
+  const latestFinishedDownload = new Map<string, string>();
+  for (const task of tasks.value) {
+    if (task.type !== 'download' || !collapsibleFinishedDownloadStatuses.has(task.status)) continue;
+    const key = downloadTaskDisplayKey(task);
+    const currentId = latestFinishedDownload.get(key);
+    const current = currentId ? tasks.value.find((item) => item.id === currentId) : undefined;
+    if (!current || preferFinishedDownload(task, current)) latestFinishedDownload.set(key, task.id);
+  }
+
+  const seenDeploy = new Set<string>();
   return [...tasks.value]
-    .sort((a, b) => taskRank(a.status) - taskRank(b.status) || b.created_at.localeCompare(a.created_at))
+    .sort(compareTasksByRecentTime)
     .filter((task) => {
+      if (task.type === 'download' && task.status === 'failed') return true;
+      if (task.type === 'download' && collapsibleFinishedDownloadStatuses.has(task.status)) {
+        return latestFinishedDownload.get(downloadTaskDisplayKey(task)) === task.id;
+      }
       if (task.type !== 'deploy' || task.status !== 'succeeded') return true;
       const key = ['deploy', task.metadata?.model_id, task.metadata?.service_type, task.metadata?.openai_model].join(':');
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (seenDeploy.has(key)) return false;
+      seenDeploy.add(key);
       return true;
     });
 });
@@ -97,15 +154,27 @@ export const dashboardTasks = computed(() => visibleTasks.value);
 export const activeTasks = computed(() => tasks.value.filter((task) => ['queued', 'running', 'paused', 'canceling'].includes(task.status)));
 export const downloadTasks = computed(() => tasks.value
   .filter((task) => task.type === 'download' && ['queued', 'running', 'paused', 'canceling'].includes(task.status))
-  .sort((a, b) => taskTime(b).localeCompare(taskTime(a)))
+  .sort(compareTasksByRecentTime)
 );
-export const customContainers = computed(() => containers.value.filter((c) => c.runtime === 'custom'));
+export const customContainers = computed(() => containers.value.filter((item) =>
+  item.category === 'custom'
+  || (!item.category && item.runtime === 'custom' && item.name.startsWith('custom_'))
+));
+export const modelInstanceContainers = computed(() => containers.value.filter((item) =>
+  item.category === 'model-instance'
+  || (!item.category && item.runtime === 'custom' && !item.name.startsWith('custom_'))
+));
 export const composePlaceholder = computed(() => locale.value === 'zh-CN'
   ? `services:\n  my-service:\n    image: nvidia/cuda:12.4.0-runtime-ubuntu22.04\n    ports:\n      - "33000:8000"\n    command: sleep infinity`
   : `services:\n  my-service:\n    image: nvidia/cuda:12.4.0-runtime-ubuntu22.04\n    ports:\n      - "33000:8000"\n    command: sleep infinity`
 );
 
-export const selectedContainer = computed(() => containers.value.find((item) => item.key === selectedContainerKey.value) ?? containers.value[0]);
+export const selectedContainer = computed(() => {
+  const matched = containers.value.find((item) => item.key === selectedContainerKey.value)
+    ?? containers.value.find((item) => item.runtime !== 'custom')
+    ?? containers.value[0];
+  return matched;
+});
 export const selectedTask = computed(() => tasks.value.find((item) => item.id === selectedTaskId.value));
 const memoryUsed = computed(() => Math.max(0, (system.value?.device?.memory?.total_bytes ?? 0) - (system.value?.device?.memory?.free_bytes ?? 0)));
 export const memoryPercent = computed(() => percent(memoryUsed.value, system.value?.device?.memory?.total_bytes ?? 0));
@@ -117,13 +186,22 @@ export const gpuSummary = computed(() => {
   if (!system.value?.device?.gpu?.available) return system.value?.device?.gpu?.detail ?? t('unavailable');
   return devices.map((device) => String(device.name ?? device.id ?? 'NVIDIA GPU')).join(', ') || 'NVIDIA';
 });
+export const gpuPercent = computed(() => {
+  const devices = system.value?.device?.gpu?.devices ?? [];
+  const values = devices
+    .map((device) => Number(device.utilization_gpu_percent))
+    .filter((value) => Number.isFinite(value));
+  if (!values.length) return 0;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+});
+
 export const portRows = computed(() => Object.entries(system.value?.service_ports ?? {}).map(([name, info]) => ({ name, ...info })));
 export const selectedDeployModel = computed(() => models.value.find((item) => item.id === deployModelId.value));
 export const containerOptions = computed(() => {
   const model = selectedDeployModel.value;
   const allowed = model ? new Set((['vllm', 'trtllm', 'pytorch'] as ServiceType[]).filter((service) => model.compatibility[service]?.status !== 'unsupported')) : null;
   return containers.value
-    .filter((item) => item.runtime !== 'custom' && (!allowed || allowed.has(item.runtime as ServiceType)))
+    .filter((item) => (item.category === 'system' || (!item.category && item.runtime !== 'custom')) && (!allowed || allowed.has(item.runtime as ServiceType)))
     .map((item) => ({ label: item.title + ' · ' + (item.state === 'missing' ? containerStateText(item) : item.name), value: item.key }));
 });
 export const modelOptions = computed(() => readyModelList.value.map((model) => ({ label: model.display_name, value: model.id })));
@@ -131,11 +209,16 @@ export const selectedDeployment = computed(() => {
   const container = selectedContainer.value;
   if (!container) return undefined;
   const modelId = deployModelId.value;
-  const byModel = runningDeployments.value.find((item) => item.service_type === container.runtime && (!modelId || item.model_id === modelId || item.openai_models.includes(modelId)));
-  return byModel ?? runningDeployments.value.find((item) => item.service_type === container.runtime);
+  if (modelId) {
+    return runningDeployments.value.find((item) =>
+      item.service_type === container.runtime &&
+      (item.model_id === modelId || item.openai_models.includes(modelId))
+    );
+  }
+  return runningDeployments.value.find((item) => item.service_type === container.runtime);
 });
 export const activeInferenceDeployments = computed(() => runningDeployments.value);
-export const activeContainerCount = computed(() => runtimeContainers.value.filter((item) => item.state === 'running').length);
+export const activeContainerCount = computed(() => containers.value.filter((item) => item.state === 'running').length);
 export const servingModelCount = computed(() => runningDeployments.value.length);
 export const createdContainerCount = computed(() => runtimeContainers.value.length);
 export const managementHost = computed(() => {
@@ -147,13 +230,13 @@ export const managementHost = computed(() => {
   return host || 'localhost';
 });
 export const consoleAddress = computed(() => 'http://' + managementHost.value + ':' + (workbenchSettings.value?.active_management_port ?? 8888));
-export const modelListSummaryUrl = computed(() => runningDeployments.value[0] ? modelEndpoint(runningDeployments.value[0]) : 'http://' + publicHost.value + ':30000/v1/models');
+export const modelListSummaryUrl = computed(() => consoleAddress.value + '/v1/models');
 export const publishedModelRows = computed(() => runningDeployments.value.flatMap((deployment) => {
   const names = deployment.openai_models.length ? deployment.openai_models : [deployment.runtime];
   return names.map((name) => ({
     key: deployment.deployment_id + ':' + name,
     model_name: name,
-    address: publicBaseUrl(deployment),
+    address: inferenceEndpoint(deployment),
     call_id: name
   }));
 }));
@@ -166,6 +249,20 @@ export const publicHost = computed(() => {
   if (host && !['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(host)) return host;
   return system.value?.lan_addresses?.[0] || host || 'localhost';
 });
+export const backendOrigin = computed(() => {
+  const fallback = 'http://' + publicHost.value + ':8000';
+  const raw = system.value?.backend_url || fallback;
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (network.value?.lan_access_enabled && ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(url.hostname)) {
+      url.hostname = publicHost.value;
+    }
+    return url.origin;
+  } catch {
+    return fallback;
+  }
+});
+export const backendOpenAiBaseUrl = computed(() => backendOrigin.value + '/v1');
 const gpuCount = computed(() => Math.max(1, system.value?.device?.gpu?.devices?.length ?? 1));
 export const contextLimit = computed(() => selectedDeployModel.value?.inference?.context_length ?? { min: 512, max: 4096, default: 4096, step: 512, source: 'default' });
 export const tensorParallelLimit = computed(() => Math.max(1, Math.min(16, gpuCount.value)));
@@ -175,11 +272,85 @@ export function percent(used: number, total: number) { return total ? Math.round
 export function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 export function formatDuration(seconds = 0) { const days = Math.floor(seconds / 86400); const hours = Math.floor((seconds % 86400) / 3600); const minutes = Math.floor((seconds % 3600) / 60); return days ? days + 'd ' + hours + 'h' : hours + 'h ' + minutes + 'm'; }
 export function formatBytes(value: number) { if (!value) return '0 B'; const units = ['B', 'KB', 'MB', 'GB', 'TB']; const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1); return (value / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1) + ' ' + units[index]; }
+export function modelFormatLabel(format?: string | null): string {
+  const normalized = String(format ?? '').trim().toLowerCase();
+  if (!normalized) return '-';
+  if (normalized === 'hf_safetensors') return '.safetensors';
+  if (normalized === 'hf_bin') return '.bin';
+  if (normalized === 'hf_partial') return '.safetensors / .bin';
+  if (normalized === 'gguf') return '.gguf';
+  if (normalized === 'trtllm_engine') return '.engine';
+  if (normalized === 'audio_onnx_pt') return '.onnx / .pt';
+  if (normalized === 'audio_onnx') return '.onnx';
+  if (normalized === 'audio_pt') return '.pt';
+  if (normalized === 'qwen3_tts') return '.safetensors';
+  if (normalized.startsWith('.')) return normalized;
+  return normalized;
+}
 export function badgeColor(status: string) { if (['compatible', 'ready', 'configured', 'running', 'succeeded'].includes(status)) return 'green'; if (['unsupported', 'incomplete', 'failed', 'missing', 'stopped', 'canceled'].includes(status)) return 'red'; if (['paused', 'canceling'].includes(status)) return 'blue'; return 'gold'; }
 export function shortModelPath(path: string) { const marker = '/models/'; const index = path.lastIndexOf(marker); return index >= 0 ? '…' + path.slice(index) : path; }
 
 export function publicBaseUrl(deployment: DeploymentRecord) { const suffix = ['vllm', 'trtllm'].includes(deployment.service_type) ? '/v1' : ''; return 'http://' + publicHost.value + ':' + deployment.public_port + suffix; }
-export function modelEndpoint(deployment: DeploymentRecord) { return publicBaseUrl(deployment) + (deployment.service_type === 'pytorch' ? '/v1/models' : '/models'); }
+export type DeploymentApiKind = 'embedding' | 'rerank' | 'document' | 'ground' | 'transcription' | 'speech' | 'chat';
+
+/** Aggregated model discovery endpoint exposed by the management API. */
+export function modelEndpoint(_deployment?: DeploymentRecord) { return modelListSummaryUrl.value; }
+
+/** Runtime-local model endpoint, retained for diagnostics rather than user-facing discovery. */
+export function runtimeModelEndpoint(deployment: DeploymentRecord) {
+  return publicBaseUrl(deployment) + (['vllm', 'trtllm'].includes(deployment.service_type) ? '/models' : '/v1/models');
+}
+
+export function deploymentApiKind(deployment: DeploymentRecord): DeploymentApiKind {
+  const declaredKind = deployment.suite?.primary_endpoint?.kind;
+  if (declaredKind && ['embedding', 'rerank', 'document', 'ground', 'transcription', 'speech', 'chat'].includes(declaredKind)) return declaredKind as DeploymentApiKind;
+  const model = models.value.find((item) =>
+    item.id === deployment.model_id || deployment.openai_models.includes(item.id)
+  );
+  const searchable = [
+    deployment.runtime,
+    deployment.container_name,
+    deployment.model_id,
+    ...deployment.openai_models,
+    model?.display_name,
+    ...(model?.capabilities || []),
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (/mineru|document[-_ ]?(parse|parser|analysis)/.test(searchable)) return 'document';
+  if (/locate[-_ ]?anything|visual[-_ ]?ground/.test(searchable)) return 'ground';
+  if (/rerank|reranker|cross[-_ ]?encoder/.test(searchable)) return 'rerank';
+  if (/embed|embedding|embeddings|feature[-_ ]?extraction/.test(searchable)) return 'embedding';
+  if (/qwen3[-_ ]?tts|text[-_ ]?to[-_ ]?speech/.test(searchable)) return 'speech';
+  if (/funasr[-_ ]?gateway/.test(searchable)) return 'transcription';
+  return 'chat';
+}
+
+export function inferenceEndpoint(deployment: DeploymentRecord) {
+  const baseUrl = publicBaseUrl(deployment);
+  const declaredPath = deployment.suite?.primary_endpoint?.path;
+  if (declaredPath) return baseUrl.replace(/\/$/, '') + (declaredPath.startsWith('/') ? declaredPath : '/' + declaredPath);
+  const apiRoot = ['vllm', 'trtllm'].includes(deployment.service_type) ? baseUrl : baseUrl + '/v1';
+  const kind = deploymentApiKind(deployment);
+  if (kind === 'embedding') return apiRoot + '/embeddings';
+  if (kind === 'rerank') return apiRoot + '/score';
+  if (kind === 'document') return apiRoot + '/documents/parse';
+  if (kind === 'ground') return apiRoot + '/ground';
+  if (kind === 'speech') return apiRoot + '/audio/speech';
+  if (kind === 'transcription') return baseUrl + '/transcription/transcribe';
+  return apiRoot + '/chat/completions';
+}
+
+export function inferenceEndpointLabel(deployment: DeploymentRecord) {
+  const kind = deploymentApiKind(deployment);
+  if (kind === 'embedding') return 'Embedding API';
+  if (kind === 'rerank') return 'Rerank Score API';
+  if (kind === 'document') return 'Document Parse API';
+  if (kind === 'ground') return 'Visual Grounding API';
+  if (kind === 'speech') return 'Speech API';
+  if (kind === 'transcription') return 'Transcription API';
+  return 'Chat API';
+}
+
 export function chatEndpoint(deployment: DeploymentRecord) { return publicBaseUrl(deployment) + (['vllm', 'trtllm'].includes(deployment.service_type) ? '/chat/completions' : '/v1/chat/completions'); }
 
 export function supportedContainers(model: ModelRecord, containerList: ContainerRecord[]) {
@@ -188,11 +359,13 @@ export function supportedContainers(model: ModelRecord, containerList: Container
     .map((service) => ({ service, container: containerList.find((item) => item.runtime === service) }));
 }
 
-export function containerStateText(container: ContainerRecord): string {
+export function containerStateText(container?: ContainerRecord): string {
+  if (!container) return t('unavailable');
   return ['vllm', 'trtllm', 'pytorch'].includes(container.runtime) && container.state === 'missing' ? t('disabled') : statusText(container.state);
 }
 
-export function containerStateColor(container: ContainerRecord): string {
+export function containerStateColor(container?: ContainerRecord): string {
+  if (!container) return 'default';
   return ['vllm', 'trtllm', 'pytorch'].includes(container.runtime) && container.state === 'missing' ? 'gold' : badgeColor(container.state);
 }
 
@@ -214,7 +387,19 @@ export function modelAuditSummary(model: ModelRecord): string {
 }
 
 export function taskProgress(task: TaskRecord): number {
+  const planProgress = task.metadata?.runtime_plan?.progress_percent;
+  if (typeof planProgress === 'number') return clamp(Math.round(planProgress), 0, 100);
   if (typeof task.progress_percent === 'number') return task.progress_percent;
+  if (task.type === 'deploy') {
+    const stage = String(task.metadata?.runtime_plan?.current_stage ?? '');
+    const status = stage ? taskRuntimePlanStageStatus(task, stage) : task.status;
+    const runningProgress: Record<string, number> = { prepare: 10, pull: 30, start: 55, load: 82, health: 96 };
+    const succeededProgress: Record<string, number> = { prepare: 20, pull: 45, start: 70, load: 92, health: 100 };
+    if (task.status === 'succeeded') return 100;
+    if (task.status === 'failed' || task.status === 'canceled') return 100;
+    if (status === 'succeeded') return succeededProgress[stage] ?? 100;
+    if (status === 'running') return runningProgress[stage] ?? 5;
+  }
   if (task.status === 'succeeded') return 100;
   if (task.status === 'failed' || task.status === 'canceled') return 100;
   if (task.status === 'running') return 5;
@@ -225,6 +410,22 @@ export function taskProgress(task: TaskRecord): number {
 export function taskTypeText(type: string): string { return t('task' + type.slice(0, 1).toUpperCase() + type.slice(1)); }
 export function runtimeHintColor(status: string): string { if (status === 'compatible') return 'green'; if (status === 'possible' || status === 'external') return 'gold'; return 'red'; }
 export function taskAlias(task: TaskRecord): string { return String(task.metadata?.alias ?? task.metadata?.model_id ?? task.metadata?.repo_id ?? task.id); }
+export function taskDisplayTitle(task: TaskRecord): string {
+  const action = String(task.metadata?.action ?? '');
+  const model = String(task.metadata?.model_id ?? task.metadata?.openai_model ?? taskAlias(task));
+  if (task.type === 'download') return (locale.value === 'zh-CN' ? '下载模型' : 'Download model') + ' · ' + model;
+  if (task.type === 'deploy') return (locale.value === 'zh-CN' ? '部署模型' : 'Deploy model') + ' · ' + model;
+  if (action === 'start_custom_profile') return (locale.value === 'zh-CN' ? '部署模型' : 'Deploy model') + ' · ' + model;
+  const target = String((locale.value === 'zh-CN' ? task.metadata?.profile_title_zh : task.metadata?.profile_title) ?? task.metadata?.profile_id ?? task.metadata?.key ?? task.metadata?.name ?? task.id);
+  const labels: Record<string, string> = locale.value === 'zh-CN' ? { build_custom_image: '构建运行时', pull_image: '拉取运行时镜像', test_image: '测试运行时' } : { build_custom_image: 'Build runtime', pull_image: 'Pull runtime image', test_image: 'Test runtime' };
+  return (labels[action] ?? taskTypeText(task.type)) + ' · ' + target;
+}
+
+export function taskCreatedAtText(task: TaskRecord): string {
+  const date = new Date(task.created_at);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
 export function taskRuntimeHints(task: TaskRecord): RuntimeHint[] { const hints = task.metadata?.runtime_hints; return Array.isArray(hints) ? hints as RuntimeHint[] : []; }
 export function taskRuntimePlanStages(task: TaskRecord) {
   const stages = task.metadata?.runtime_plan?.stages;
@@ -246,8 +447,16 @@ export function taskRuntimePlanSummary(task: TaskRecord): string {
   const stages = taskRuntimePlanStages(task);
   const currentStage = String(plan.current_stage ?? '');
   const current = currentStage ? stages.find((stage) => stage.id === currentStage) : undefined;
+  const currentStatus = current ? taskRuntimePlanStageStatus(task, current.id) : '';
+  if (currentStatus === 'running') {
+    const zh = locale.value === 'zh-CN';
+    if (currentStage === 'start') return zh ? '正在启动运行时 · API 尚不可用' : 'Starting runtime · API is not available yet';
+    if (currentStage === 'load') return zh ? '正在加载模型权重 · API 尚不可用' : 'Loading model weights · API is not available yet';
+    if (currentStage === 'health') return zh ? '模型已加载，正在验证 API · 尚未发布' : 'Model loaded; validating API · Not published yet';
+  }
   const stageText = current ? current.label + ': ' + statusText(taskRuntimePlanStageStatus(task, current.id)) : stages.length ? stages.map((stage) => stage.label).join(' / ') : '';
-  const target = String(plan.base_url ?? plan.health_url ?? '');
+  const ready = task.status === 'succeeded' || plan.stage_statuses?.health === 'succeeded';
+  const target = ready ? String(plan.base_url ?? plan.health_url ?? '') : '';
   return [stageText, target].filter(Boolean).join(' · ');
 }
 export function taskTarget(task: TaskRecord): string { return String(task.metadata?.target_path ?? task.cwd); }
@@ -264,23 +473,40 @@ export function taskFileSummary(task: TaskRecord): string {
 }
 
 
-function taskFileDetailLines(task: TaskRecord, limit = 6): string[] {
-  const files = task.model_files ?? [];
+function taskFileDetailLines(task: TaskRecord, limit = 5): string[] {
+  const files = (task.model_files ?? [])
+    .filter((file) => file.relative_path !== '.')
+    .slice()
+    .sort((a, b) => String(a.relative_path).localeCompare(String(b.relative_path)));
   if (!files.length) return [];
+  const compactPath = (path: string) => path.replace(/^\.temp\//, '.temp/');
   const head = files.slice(0, limit).map((file) => {
     const size = typeof file.downloaded_bytes === 'number' && file.downloaded_bytes > 0 ? ' · ' + formatBytes(file.downloaded_bytes) : '';
-    return '  - ' + file.relative_path + ' · ' + statusText(file.status) + size;
+    return '  - ' + compactPath(file.relative_path) + ' · ' + statusText(file.status) + size;
   });
   if (files.length > limit) head.push('  ... +' + (files.length - limit));
   return head;
 }
 
 export function taskSummary(task: TaskRecord): string {
-  if (task.diagnostic) return [task.diagnostic.stage ? t('stage') + ': ' + task.diagnostic.stage : '', task.diagnostic.message, task.diagnostic.repair_actions.map((action) => action.label).slice(0, 2).join(' / ')].filter(Boolean).join(' · ');
-  if (task.type === 'download') return [t('modelName') + ': ' + taskAlias(task), t('source') + ': ' + String(task.metadata?.repo_id ?? task.metadata?.provider ?? '-'), t('downloadTarget') + ': ' + shortModelPath(taskTarget(task))].join(' · ');
-  if (task.type === 'deploy') return [t('modelName') + ': ' + String(task.metadata?.model_id ?? '-'), t('container') + ': ' + String(task.metadata?.service_type ?? '-'), taskRuntimePlanSummary(task)].filter(Boolean).join(' · ');
-  if (task.type === 'container') return t('containerName') + ': ' + String(task.metadata?.name ?? '-') + ' · ' + t('image') + ': ' + String(task.metadata?.image ?? '-');
-  return task.command;
+  let summary = '';
+  if (task.type === 'download') summary = [t('modelName') + ': ' + taskAlias(task), t('source') + ': ' + String(task.metadata?.repo_id ?? task.metadata?.provider ?? '-'), t('downloadTarget') + ': ' + shortModelPath(taskTarget(task))].join(' · ');
+  else if (task.type === 'deploy') summary = [t('modelName') + ': ' + String(task.metadata?.model_id ?? '-'), t('container') + ': ' + String(task.metadata?.service_type ?? '-'), taskRuntimePlanSummary(task)].filter(Boolean).join(' · ');
+  else if (task.type === 'container') {
+    const action = String(task.metadata?.action ?? '');
+    const name = String(task.metadata?.name ?? task.metadata?.container_name ?? task.metadata?.profile_id ?? task.metadata?.key ?? '-');
+    if (action === 'start_custom_profile') {
+      const model = String(task.metadata?.model_id ?? task.metadata?.openai_model ?? '-');
+      const runtime = String((locale.value === 'zh-CN' ? task.metadata?.profile_title_zh : task.metadata?.profile_title) ?? task.metadata?.profile_id ?? '-');
+      summary = [(locale.value === 'zh-CN' ? '模型' : 'Model') + ': ' + model, (locale.value === 'zh-CN' ? '运行时' : 'Runtime') + ': ' + runtime, t('containerName') + ': ' + name, taskRuntimePlanSummary(task)].filter(Boolean).join(' · ');
+    } else {
+      const image = String(task.metadata?.image ?? task.metadata?.profile_id ?? task.metadata?.key ?? '-');
+      const nameLabel = action === 'build_custom_image' ? (locale.value === 'zh-CN' ? '运行时' : 'Runtime') : t('containerName');
+      summary = nameLabel + ': ' + name + ' · ' + t('image') + ': ' + image;
+    }
+  } else summary = task.command;
+  if (task.diagnostic) summary = [summary, (locale.value === 'zh-CN' ? '失败' : 'Failed') + ': ' + task.diagnostic.message].filter(Boolean).join(' · ');
+  return summary;
 }
 
 export function formatTaskEventTime(value?: string): string {
@@ -326,6 +552,61 @@ export function taskEventLog(task?: TaskRecord): string {
   return lines.join('\n');
 }
 
+
+
+function stripLogDecorations(value: string): string {
+  return value
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line, index, list) => line.trim() || (index > 0 && list[index - 1]?.trim()))
+    .join('\n');
+}
+
+
+function logBlockStartIndexes(logs: string): number[] {
+  const indexes: number[] = [];
+  const pattern = /^\[\d{4}-\d{2}-\d{2}T[^\]]+\]\s+\$\s+/gm;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(logs))) indexes.push(match.index);
+  return indexes;
+}
+
+function logBlockForTask(logs: string, task?: TaskRecord): string {
+  if (!task) return logs;
+  const starts = logBlockStartIndexes(logs);
+  if (!starts.length) return logs;
+  const targetTime = new Date(task.started_at ?? task.created_at).getTime();
+  let bestStart = starts[starts.length - 1];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const start of starts) {
+    const stamp = logs.slice(start + 1, start + 25);
+    const time = new Date(stamp).getTime();
+    if (Number.isNaN(time)) continue;
+    const distance = Math.abs(time - targetTime);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestStart = start;
+    }
+  }
+  const blockIndex = starts.indexOf(bestStart);
+  const nextStart = starts[blockIndex + 1] ?? logs.length;
+  return logs.slice(bestStart, nextStart);
+}
+
+function tailLog(value: string, maxLines = 180, maxChars = 14000): string {
+  const cleaned = stripLogDecorations(value);
+  const tailByChars = cleaned.length > maxChars ? cleaned.slice(cleaned.length - maxChars) : cleaned;
+  const lines = tailByChars.split('\n');
+  return lines.slice(Math.max(0, lines.length - maxLines)).join('\n').trim();
+}
+
+
+export function displayTaskLog(value = taskLog.value): string {
+  return tailLog(value);
+}
 
 export function downloadEventTimeline(taskList = tasks.value): string[] {
   const events = taskList
@@ -381,11 +662,11 @@ export function paramLimitText() { const limit = contextLimit.value; return t('m
 export const compatibilityGuide = computed(() => locale.value === 'zh-CN' ? [
   { format: 'HuggingFace checkpoint（.safetensors / .bin）', service: 'vLLM', note: '默认部署方式。下载完成后直接加载到 vLLM 容器即可发布 OpenAI API。需要 config.json + tokenizer + 权重文件完整。' },
   { format: 'TensorRT-LLM 引擎（.engine）', service: 'TensorRT-LLM', note: '需先用 trtllm-build 转换 HF checkpoint。适合高并发生产场景，配置比 vLLM 复杂，但吞吐更高。' },
-  { format: '音频模型（Whisper / FunASR / CosyVoice）', service: 'PyTorch', note: 'ASR 语音识别 / TTS 语音合成专用。通过 PyTorch 容器运行，不经过 vLLM 或 TensorRT-LLM。' }
+  { format: '音频模型（Whisper / FunASR / CosyVoice）', service: '自定义 Audio', note: 'ASR / TTS 需要自定义 Audio/FunASR 运行时；默认 PyTorch 容器只是通用环境。' }
 ] : [
   { format: 'HuggingFace checkpoint (.safetensors / .bin)', service: 'vLLM', note: 'Default route. Download then load into the vLLM container to serve an OpenAI API. Needs config.json + tokenizer + complete weight files.' },
   { format: 'TensorRT-LLM engine (.engine)', service: 'TensorRT-LLM', note: 'Convert from HF checkpoint with trtllm-build first. Best for high-throughput production; more complex setup than vLLM.' },
-  { format: 'Audio models (Whisper / FunASR / CosyVoice)', service: 'PyTorch', note: 'Dedicated ASR / TTS. Runs via the PyTorch container separate from the LLM runtimes.' }
+  { format: 'Audio models (Whisper / FunASR / CosyVoice)', service: 'Custom Audio', note: 'ASR / TTS needs a custom Audio/FunASR runtime; the default PyTorch container is only a generic environment.' }
 ]);
 
 /* ── container display helpers ─────────────────── */
@@ -400,6 +681,7 @@ export function testStatusText(status?: string) { if (status === 'passed') retur
 /* ── deployment helpers ────────────────────────── */
 export function selectDeployModel(model: ModelRecord) {
   deployModelId.value = model.id;
+  localStorage.setItem('deployModelId', model.id);
   deployOpenAiModel.value = model.id;
   const preferred = containers.value.find((container) => model.compatibility[container.runtime]?.status !== 'unsupported' && container.runtime === model.runtime.preferred)
     ?? containers.value.find((container) => model.compatibility[container.runtime]?.status !== 'unsupported');
@@ -438,9 +720,10 @@ export function deploymentIsActive(deployment?: DeploymentRecord): boolean {
 
 export function selectedPublicBaseUrl(): string { return selectedDeployment.value ? publicBaseUrl(selectedDeployment.value) : ''; }
 export function selectedModelEndpoint(): string { return selectedDeployment.value ? modelEndpoint(selectedDeployment.value) : ''; }
+export function selectedInferenceEndpoint(): string { return selectedDeployment.value ? inferenceEndpoint(selectedDeployment.value) : ''; }
 export function selectedChatEndpoint(): string { return selectedDeployment.value ? chatEndpoint(selectedDeployment.value) : ''; }
 export function expectedContainerName(model: ModelRecord, serviceType: ServiceType): string {
-  if (serviceType === 'vllm') return 'vllm-service';
+  if (serviceType === 'vllm') return 'vllm_' + model.id.toLowerCase().replace(/[^a-z0-9._-]+/g, '_').replace(/-/g, '_').replace(/^[_ .-]+|[_ .-]+$/g, '').slice(0, 48);
   if (serviceType === 'trtllm') return 'trtllm-service';
   return 'pytorch-service';
 }
@@ -452,27 +735,78 @@ export function setTheme(next: ThemeMode) { themeMode.value = next; localStorage
 /* ── API ───────────────────────────────────────── */
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch('/api' + path, options);
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.detail ?? payload.error?.message ?? 'Request failed');
+  const text = await response.text();
+  let payload: unknown = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { detail: text || response.statusText || 'Request failed' };
+  }
+  if (!response.ok) throw new Error((payload as any)?.error?.message ?? (payload as any)?.detail ?? response.statusText ?? 'Request failed');
   return payload as T;
 }
 
-export async function copyText(value: string) {
+function emptySystemCheck(): SystemCheck {
+  const host = typeof window !== 'undefined' ? (window.location.hostname || 'localhost') : 'localhost';
+  return {
+    management_url: 'http://' + host + ':8888',
+    backend_url: '/api',
+    lan_addresses: [],
+    service_ports: {},
+    docker: { ok: false, detail: '' }
+  };
+}
+
+function fallbackCopyText(value: string): boolean {
+  const textarea = document.createElement('textarea');
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.setAttribute('aria-hidden', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(value);
-    message.success(t('copied'));
+    copied = document.execCommand('copy');
   } catch {
-    message.error(t('copyFailed'));
+    copied = false;
   }
+  textarea.remove();
+  activeElement?.focus();
+  return copied;
+}
+
+export async function copyText(value: string): Promise<boolean> {
+  const text = String(value ?? '');
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+  if (!copied) copied = fallbackCopyText(text);
+  if (copied) message.success(t('copied'));
+  else message.error(t('copyFailed'));
+  return copied;
 }
 
 export async function refresh() {
-  const [modelPayload, deploymentPayload, taskPayload, systemPayload, networkPayload, workbenchPayload, containerPayload] = await Promise.all([
-    api<{ models: ModelRecord[] }>('/models'),
-    api<{ deployments: DeploymentRecord[] }>('/deployments'),
+  const [modelPayload, deploymentPayload, taskPayload, systemPayload, networkPayload, proxyPayload, workbenchPayload, containerPayload] = await Promise.all([
+    api<{ models: ModelRecord[] }>('/models').catch(() => ({ models: [] })),
+    api<{ deployments: DeploymentRecord[] }>('/deployments').catch(() => ({ deployments: [] })),
     api<{ tasks: TaskRecord[] }>('/tasks').catch(() => ({ tasks: [] })),
-    api<SystemCheck>('/system/check'),
+    api<SystemCheck>('/system/check').catch(() => emptySystemCheck()),
     api<NetworkSettings>('/settings/network').catch(() => null),
+    api<ProxySettings>('/settings/proxy').catch(() => null),
     api<WorkbenchSettings>('/settings/workbench').catch(() => null),
     api<{ containers: ContainerRecord[] }>('/containers').catch(() => ({ containers: [] }))
   ]);
@@ -481,6 +815,7 @@ export async function refresh() {
   tasks.value = taskPayload.tasks ?? [];
   system.value = systemPayload;
   network.value = networkPayload ?? systemPayload.network ?? null;
+  proxySettings.value = proxyPayload;
   workbenchSettings.value = workbenchPayload ?? systemPayload.workbench ?? null;
   managementPort.value = workbenchSettings.value?.management_port ?? 8888;
   const newContainers = containerPayload.containers ?? [];
@@ -488,22 +823,70 @@ export async function refresh() {
   if (newContainers.length > 0 || containers.value.length === 0) {
     containers.value = newContainers;
   }
-  if (!deployModelId.value && readyModelList.value[0]) selectDeployModel(readyModelList.value[0]);
+  if ((!deployModelId.value || !selectedDeployModel.value) && readyModelList.value[0]) selectDeployModel(readyModelList.value[0]);
   if (selectedDeployModel.value && !containerOptions.value.some((item) => item.value === selectedContainerKey.value)) { const first = containerOptions.value[0]; if (first) selectedContainerKey.value = first.value; }
   if (!deployOpenAiModel.value && deployModelId.value) deployOpenAiModel.value = deployModelId.value;
   if (!selectedContainerKey.value && containerOptions.value[0]) selectedContainerKey.value = containerOptions.value[0].value;
-  if (!selectedTaskId.value && tasks.value[0]) selectedTaskId.value = tasks.value[0].id;
+  const selectedTaskVisible = visibleTasks.value.some((task) => task.id === selectedTaskId.value);
+  if ((!selectedTaskId.value || !selectedTaskVisible) && visibleTasks.value[0]) {
+    selectedTaskId.value = visibleTasks.value[0].id;
+  }
 }
 
 export async function loadTaskLog(taskId = selectedTaskId.value) {
   if (!taskId) return;
+  selectedTaskId.value = taskId;
+  selectedLogContainer.value = '';
+  containerLog.value = '';
   const payload = await api<{ logs: string }>('/tasks/' + encodeURIComponent(taskId) + '/logs');
-  taskLog.value = payload.logs;
+  const task = tasks.value.find((item) => item.id === taskId);
+  taskLog.value = tailLog(logBlockForTask(payload.logs, task));
 }
 
 export async function loadContainerLogs(name: string) {
   if (!name) return;
   selectedLogContainer.value = name;
+  taskLog.value = '';
   const payload = await api<{ logs: string }>('/containers/' + encodeURIComponent(name) + '/logs?lines=200');
-  containerLog.value = payload.logs;
+  if (selectedLogContainer.value === name) containerLog.value = payload.logs;
+}
+
+/**
+ * 在文件管理器中打开模型目录。
+ * Open the model folder in the system file manager.
+ */
+export async function openModelFolder(model: ModelRecord) {
+  await api('/models/' + encodeURIComponent(model.id) + '/open-folder', { method: 'POST' });
+}
+
+/**
+ * 删除本地模型（带确认弹窗）。
+ * Delete a local model with confirmation dialog.
+ */
+export function deleteLocalModel(model: ModelRecord) {
+  if (!canDeleteModel(model)) { message.warning(t('deleteBlocked')); return; }
+  Modal.confirm({
+    title: locale.value === 'zh-CN' ? '确认删除模型' : 'Confirm Delete Model',
+    content: [
+      t('modelName') + ': ' + model.display_name,
+      t('path') + ': ' + model.local.path,
+      t('size') + ': ' + formatBytes(model.local.size_bytes),
+      t('format') + ': ' + modelFormatLabel(model.local.format),
+      t('files') + ': ' + model.local.file_count + ' files, ' + model.local.weight_files + ' weights'
+    ].join('\\n'),
+    okText: locale.value === 'zh-CN' ? '确认删除' : 'Confirm Delete',
+    okType: 'danger',
+    cancelText: locale.value === 'zh-CN' ? '取消' : 'Cancel',
+    width: 520,
+    onOk: async () => {
+      const hide = message.loading(t('deleting'), 0);
+      try {
+        await api('/models/' + encodeURIComponent(model.id), { method: 'DELETE' });
+        message.success(t('deleted'));
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : String(error));
+      } finally { hide(); }
+    }
+  });
 }

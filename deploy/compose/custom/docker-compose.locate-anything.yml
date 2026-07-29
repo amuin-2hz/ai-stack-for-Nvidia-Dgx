@@ -1,0 +1,35 @@
+#
+# LocateAnything visual grounding profile using the model's Transformers worker.
+#
+services:
+  locate-anything-service:
+    image: ${LOCATE_ANYTHING_IMAGE:-local/ai-stack-locate-anything:latest}
+    build:
+      context: ../../..
+      dockerfile: deploy/dockerfiles/custom/locate-anything.Dockerfile
+      args:
+        PYTORCH_BASE_IMAGE: ${PYTORCH_BASE_IMAGE:-nvcr.io/nvidia/pytorch:25.04-py3}
+    container_name: custom_locate_anything_service
+    gpus: all
+    ipc: host
+    ports:
+      - "${AI_STACK_BIND_ADDR:-127.0.0.1}:${LOCATE_ANYTHING_PUBLIC_PORT:-33060}:8000"
+    restart: ${AI_STACK_RESTART_POLICY:-no}
+    volumes:
+      - ../../../models/${MODEL_ALIAS:-locateanything-3b}:/models/${MODEL_ALIAS:-locateanything-3b}:ro
+      - ../../../cache/hf:/root/.cache/huggingface
+    environment:
+      - MODEL_PATH=/models/${MODEL_ALIAS:-locateanything-3b}
+      - OPENAI_MODEL=${OPENAI_MODEL:-locateanything-3b}
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    command:
+      - python
+      - -m
+      - ai_stack_locate_server
+      - --model
+      - /models/${MODEL_ALIAS:-locateanything-3b}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"

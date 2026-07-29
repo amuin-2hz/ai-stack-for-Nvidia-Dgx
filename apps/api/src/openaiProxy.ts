@@ -33,21 +33,9 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       sendJsonProxy(res, 400, { error: { message: "model is required" } });
       return;
     }
-    let deployments = await liveActiveDeployments();
-    let deployment = deployments.find(
-      (item) =>
-        item.openai_model === modelId || item.model_id === modelId
-    );
-    if (!deployment) {
-      const autoloaded = await autoLoadDeploymentForModel(modelId);
-      if (autoloaded) {
-        deployments = await liveActiveDeployments();
-        deployment = deployments.find(
-          (item) =>
-            item.openai_model === modelId || item.model_id === modelId
-        );
-      }
-    }
+    const resolved = await resolveDeployment(modelId, true);
+    const deployments = resolved.deployments;
+    const deployment = resolved.deployment;
     if (!deployment) {
       sendJsonProxy(res, 404, {
         error: {
@@ -60,6 +48,7 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       });
       return;
     }
+
     const baseUrl =
       deployment.worker_endpoint ??
       runtimeOpenAiBaseUrl(deployment.service_type);
@@ -76,6 +65,24 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       });
       return;
     }
+    const healthTarget =
+      deployment.health_url ?? runtimeHealthUrl(deployment.service_type);
+    const health = await proxyHttp("GET", healthTarget);
+    if (!health.ok) {
+      sendJsonProxy(res, 503, {
+        error: {
+          message:
+            "Runtime for model " +
+            modelId +
+            " is still loading or unavailable.",
+          detail: health.body || "Health check failed.",
+          health_url: healthTarget,
+          deployment_id: deployment.deployment_id
+        }
+      });
+      return;
+    }
+
     // If the request asks for a stream, proxy chunk-by-chunk as SSE
     if (body.stream === true) {
       return proxyStream(res, baseUrl + path, body);
@@ -87,12 +94,41 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
       JSON.stringify(body),
       { "content-type": "application/json" }
     );
+    const contentType = result.contentType || "application/json; charset=utf-8";
     res.writeHead(result.status, {
-      "content-type":
-        result.contentType || "application/json; charset=utf-8",
+      "content-type": isJsonContentType(contentType) ? contentType : "application/json; charset=utf-8",
       "access-control-allow-origin": "*"
     });
+    if (!result.ok && !isJsonContentType(result.contentType)) {
+      res.end(
+        JSON.stringify({
+          error: {
+            message: result.body || "Upstream runtime request failed.",
+            status: result.status,
+            target: baseUrl + path
+          }
+        })
+      );
+      return;
+    }
     res.end(result.body);
+  }
+
+  async function resolveDeployment(modelId: string, allowAutoLoad: boolean) {
+    let deployments = await liveActiveDeployments();
+    let deployment = deployments.find(
+      (item) => item.openai_model === modelId || item.model_id === modelId
+    );
+    if (!deployment && allowAutoLoad) {
+      const autoloaded = await autoLoadDeploymentForModel(modelId);
+      if (autoloaded) {
+        deployments = await liveActiveDeployments();
+        deployment = deployments.find(
+          (item) => item.openai_model === modelId || item.model_id === modelId
+        );
+      }
+    }
+    return { deployment, deployments };
   }
 
   async function autoLoadDeploymentForModel(modelId: string) {
@@ -155,6 +191,10 @@ export function createOpenAiProxy(deps: OpenAIProxyDeps) {
     autoLoadDeploymentForModel,
     waitForDeploymentReady
   };
+}
+
+function isJsonContentType(value: string | undefined): boolean {
+  return /\bjson\b/i.test(value ?? "");
 }
 
 async function proxyStream(

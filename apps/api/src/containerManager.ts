@@ -4,7 +4,7 @@
 export type { ContainerRecord, CustomContainerRequest, RuntimePreset } from "./containerPresets.js";
 export { presets, presetForKey } from "./containerPresets.js";
 
-export { dockerContainers, imageExists } from "./containerDocker.js";
+export { cleanupFailedManagedContainers, dockerContainers, imageExists } from "./containerDocker.js";
 
 export {
   createCustomContainerTask,
