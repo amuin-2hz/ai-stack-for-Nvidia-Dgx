@@ -53,6 +53,7 @@ function apiEnv(workspaceRoot) {
         FRONTEND_PORT: String(FRONTEND_PORT),
         AI_STACK_BIND_ADDR: "127.0.0.1",
         AI_STACK_BASE: workspaceRoot,
+        AI_STACK_DATA_DIR: workspaceRoot,
         MODELS_ROOT: (0, node_path_1.join)(workspaceRoot, "models"),
         STATE_ROOT: (0, node_path_1.join)(workspaceRoot, "state"),
         LOGS_ROOT: (0, node_path_1.join)(workspaceRoot, "logs"),

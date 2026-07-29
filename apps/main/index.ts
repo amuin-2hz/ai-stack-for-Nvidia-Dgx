@@ -57,6 +57,7 @@ function apiEnv(workspaceRoot: string): NodeJS.ProcessEnv {
     FRONTEND_PORT: String(FRONTEND_PORT),
     AI_STACK_BIND_ADDR: "127.0.0.1",
     AI_STACK_BASE: workspaceRoot,
+    AI_STACK_DATA_DIR: workspaceRoot,
     MODELS_ROOT: join(workspaceRoot, "models"),
     STATE_ROOT: join(workspaceRoot, "state"),
     LOGS_ROOT: join(workspaceRoot, "logs"),
