@@ -28,6 +28,8 @@ RUN python -m pip install --no-cache-dir \
     "simplejson>=3.19.0" \
     "python-multipart>=0.0.9"
 
+RUN python -m pip install --no-cache-dir "websockets>=15.0.1"
+
 RUN python -m pip install --no-cache-dir --no-build-isolation "hdbscan>=0.8.44" \
     && python -m pip install --no-cache-dir --no-deps \
         "datasets==2.21.0" \

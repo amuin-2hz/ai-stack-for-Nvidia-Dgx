@@ -1,5 +1,6 @@
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
+import { isWeightFile } from "./utils.js";
 
 export interface ModelIntegrityReport {
   missing_indexed_weight_files: string[];
@@ -50,8 +51,8 @@ export async function inspectCompletedModelDownload(modelPath: string): Promise<
   }
   const names = new Set(relativeFiles.map((file) => basename(file)));
   const hasConfig = ["config.json", "configuration.json", "config.yaml", "cosyvoice.yaml"].some((name) => names.has(name));
-  const hasWeight = relativeFiles.some((file) => /\.(safetensors|bin|gguf|pt|pth|onnx|engine)$/.test(file));
-  const standaloneWeight = relativeFiles.some((file) => /\.(gguf|engine)$/.test(file));
+  const hasWeight = relativeFiles.some(isWeightFile);
+  const standaloneWeight = relativeFiles.some((file) => /\.(gguf|engine|fst)$/.test(file));
   if (!hasWeight) return { complete: false, reason: "no model weight file was found" };
   if (!hasConfig && !standaloneWeight) return { complete: false, reason: "model configuration is missing" };
   return { complete: true, reason: "completion marker, configuration, weights and indexed shards are valid" };

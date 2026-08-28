@@ -17,6 +17,8 @@ import {
   playgroundPrompt, playgroundTab, playgroundSessionStarted,
   playgroundTemperature, playgroundTopP, playgroundMaxTokens, playgroundStream, playgroundSystemPrompt,
   visionPrompt, visionImageUrl, embeddingInput, rerankerQuery, rerankerDocument, audioFile,
+  asrPreset, asrEngine, asrLanguage, asrSpeakerCount, asrDiarization,
+  asrPresetOptions, asrEngineOptions, selectedAsrPipelineStatus,
   speakerEnrollFile, speakerTestFile, speakerThreshold,
   playgroundBusy, visionBusy, embeddingBusy, rerankerBusy, audioBusy,
   playgroundResponse, activePlaygroundResponse, activePlaygroundError,
@@ -222,6 +224,44 @@ function applySuggestion(value: string) {
               </a-upload>
               <span :class="{ hasFile: audioFile }">{{ audioFile?.name || (locale === 'zh-CN' ? '支持 WAV、MP3、M4A、FLAC' : 'WAV, MP3, M4A, or FLAC') }}</span>
             </div>
+            <div class="asrPipelineControls">
+              <div class="asrPipelineField full">
+                <label>{{ locale === 'zh-CN' ? '预设流程' : 'Pipeline Preset' }}</label>
+                <a-select v-model:value="asrPreset" :options="asrPresetOptions" />
+              </div>
+              <div class="asrPipelineField full">
+                <label>{{ locale === 'zh-CN' ? 'ASR 入口' : 'ASR Entry' }}</label>
+                <a-radio-group v-model:value="asrEngine" button-style="solid">
+                  <a-radio-button v-for="item in asrEngineOptions" :key="item.value" :value="item.value">{{ item.label }}</a-radio-button>
+                </a-radio-group>
+              </div>
+              <div class="asrPipelineField">
+                <label>{{ locale === 'zh-CN' ? '语言' : 'Language' }}</label>
+                <a-select v-model:value="asrLanguage" :options="[
+                  { value: 'auto', label: locale === 'zh-CN' ? '自动检测' : 'Auto detect' },
+                  { value: 'zh', label: '中文' },
+                  { value: 'en', label: 'English' },
+                  { value: 'yue', label: locale === 'zh-CN' ? '粤语' : 'Cantonese' }
+                ]" />
+              </div>
+              <div class="asrPipelineField switch">
+                <label>{{ locale === 'zh-CN' ? '说话人分离' : 'Diarization' }}</label>
+                <a-switch v-model:checked="asrDiarization" />
+              </div>
+              <div v-if="asrDiarization" class="asrPipelineField">
+                <label>{{ locale === 'zh-CN' ? '说话人数' : 'Speaker Count' }}</label>
+                <a-select v-model:value="asrSpeakerCount" :options="[
+                  { value: 'auto', label: locale === 'zh-CN' ? '自动' : 'Auto' },
+                  { value: '2', label: '2' }, { value: '3', label: '3' }, { value: '4', label: '4' }, { value: '5', label: '5' }
+                ]" />
+              </div>
+            </div>
+            <a-alert
+              v-if="selectedAsrPipelineStatus && (selectedAsrPipelineStatus.warnings || []).length"
+              :type="selectedAsrPipelineStatus.available === false ? 'warning' : 'info'" show-icon
+              :message="selectedAsrPipelineStatus.available === false ? (locale === 'zh-CN' ? '该预设当前不可用' : 'Preset unavailable') : (locale === 'zh-CN' ? '该预设将降级运行' : 'Preset will run with fallback')"
+              :description="(selectedAsrPipelineStatus.warnings || []).join(locale === 'zh-CN' ? '；' : '; ')"
+            />
             <a-space wrap class="playground-action-row">
               <a-button type="primary" :loading="audioBusy" :disabled="!audioFile" @click="runAsrTranscription"><template #icon><PlayCircleOutlined /></template>{{ locale === 'zh-CN' ? '开始转写' : 'Transcribe' }}</a-button>
               <a-button @click="clearPlaygroundCurrentMode">{{ t('playgroundClear') }}</a-button>

@@ -244,6 +244,49 @@ export const speakerEnrollFile = ref<File | null>(null);
 export const speakerTestFile = ref<File | null>(null);
 export const speakerThreshold = ref(0.31);
 
+
+export type AsrEngine = 'sensevoice' | 'paraformer';
+export type AsrPreset = 'general' | 'accurate-zh' | 'domain-zh' | 'meeting';
+
+const asrPresetDefaults: Record<AsrPreset, { engine: AsrEngine; diarization: boolean; labelZh: string; labelEn: string; detail: string }> = {
+  general: { engine: 'sensevoice', diarization: false, labelZh: '普通转写', labelEn: 'General', detail: 'VAD + SenseVoice' },
+  'accurate-zh': { engine: 'paraformer', diarization: false, labelZh: '高准确率中文', labelEn: 'Accurate Chinese', detail: 'VAD + Paraformer + N-gram-FST + PUNC' },
+  'domain-zh': { engine: 'paraformer', diarization: false, labelZh: '固定领域', labelEn: 'Domain Chinese', detail: 'VAD + Paraformer + N-gram-FST + PUNC' },
+  meeting: { engine: 'paraformer', diarization: true, labelZh: '会议转写', labelEn: 'Meeting', detail: 'ASR pipeline + speaker diarization' }
+};
+
+export const asrPreset = ref<AsrPreset>('general');
+export const asrEngine = ref<AsrEngine>('sensevoice');
+export const asrLanguage = ref('auto');
+export const asrSpeakerCount = ref('auto');
+export const asrDiarization = ref(false);
+export const audioPipelineCatalog = ref<Array<Record<string, any>>>([]);
+
+export const asrEngineOptions = computed(() => [
+  { value: 'sensevoice', label: locale.value === 'zh-CN' ? 'SenseVoice · 快速通用' : 'SenseVoice · Fast general' },
+  { value: 'paraformer', label: locale.value === 'zh-CN' ? 'Paraformer · 中文增强' : 'Paraformer · Enhanced Chinese' }
+]);
+
+export const asrPresetOptions = computed(() =>
+  (Object.entries(asrPresetDefaults) as Array<[AsrPreset, typeof asrPresetDefaults[AsrPreset]]>).map(([value, item]) => {
+    const runtime = audioPipelineCatalog.value.find((entry) => String(entry.id).replace(/^pipeline:/, '') === value);
+    return {
+      value,
+      label: `${locale.value === 'zh-CN' ? item.labelZh : item.labelEn} · ${item.detail}`,
+      disabled: runtime ? runtime.available === false : false
+    };
+  })
+);
+
+export const selectedAsrPipelineStatus = computed(() =>
+  audioPipelineCatalog.value.find((entry) => String(entry.id).replace(/^pipeline:/, '') === asrPreset.value)
+);
+
+watch(asrPreset, (value) => {
+  const preset = asrPresetDefaults[value];
+  asrEngine.value = preset.engine;
+  asrDiarization.value = preset.diarization;
+}, { immediate: true });
 // ── 异步状态 ─────────────────────────────────────────────────────────────
 export const playgroundBusy = ref(false);
 export const visionBusy = ref(false);
@@ -424,7 +467,7 @@ export const rerankerCurl = computed(() =>
 );
 
 export const audioCurl = computed(() =>
-  `curl ${backendOrigin.value}/audio/transcriptions -F "model=${selectedModelName()}" -F "file=@audio.wav"`
+  `curl ${backendOrigin.value}/audio/transcriptions -F "model=${selectedModelName()}" -F "file=@audio.wav" -F "preset=${asrPreset.value}" -F "asrEngine=${asrEngine.value}" -F "language=${asrLanguage.value}" -F "speakerCount=${asrSpeakerCount.value}" -F "diarization=${asrDiarization.value}"`
 );
 
 export const speakerVerificationCurl = computed(() =>
@@ -777,8 +820,14 @@ export async function runAsrTranscription() {
     const form = new FormData();
     form.append('model', model);
     form.append('file', audioFile.value, audioFile.value.name);
+    form.append('preset', asrPreset.value);
+    form.append('asrEngine', asrEngine.value);
+    form.append('language', asrLanguage.value);
+    form.append('speakerCount', asrSpeakerCount.value);
+    form.append('diarization', String(asrDiarization.value));
     const payload = await api<any>('/audio/transcriptions', { method: 'POST', body: form });
-    audioResponse.value = payload?.text || JSON.stringify(payload, null, 2);
+    const transcript = String(payload?.text || '').trim();
+    audioResponse.value = transcript ? `${transcript}\n\n${JSON.stringify(payload, null, 2)}` : JSON.stringify(payload, null, 2);
     audioMetrics.value = { latencyMs: Math.round(performance.now() - started), status: 'ok' };
   } catch (error) {
     audioError.value = error instanceof Error ? error.message : String(error);
@@ -823,6 +872,7 @@ export async function loadAudioModels() {
   try {
     const payload = await api<any>('/audio/models');
     const models = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+    audioPipelineCatalog.value = models.filter((item: any) => item?.kind === 'asr-preset');
     audioResponse.value = JSON.stringify(payload, null, 2);
     audioMetrics.value = { latencyMs: Math.round(performance.now() - started), modelCount: models.length || undefined, status: 'ok' };
   } catch (error) {

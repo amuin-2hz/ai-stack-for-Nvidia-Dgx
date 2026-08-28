@@ -18,7 +18,7 @@ export function shortId(value: string): string {
 }
 
 export function isWeightFile(path: string): boolean {
-  const suffixes = [".safetensors", ".bin", ".gguf", ".pt", ".pth", ".onnx", ".engine"];
+  const suffixes = [".safetensors", ".bin", ".gguf", ".pt", ".pth", ".onnx", ".engine", ".fst", ".pb"];
   const extension = extname(path);
   return suffixes.includes(extension) || suffixes.some((suffix) => path.endsWith(suffix));
 }

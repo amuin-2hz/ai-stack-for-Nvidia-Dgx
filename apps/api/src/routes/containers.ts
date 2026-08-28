@@ -27,8 +27,8 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     order: 10,
     title: "FunASR Gateway",
     title_zh: "FunASR 语音网关",
-    description: "Single runtime profile for FunASR ASR, VAD, punctuation, and speaker diarization.",
-    description_zh: "一个运行时包含 FunASR 语音识别、VAD、标点和说话人分离。"
+    description: "Dual FunASR pipelines with SenseVoice/Paraformer selection, language-model presets, punctuation, and speaker diarization.",
+    description_zh: "双 FunASR 管线，可选 SenseVoice/Paraformer，并提供语言模型、标点和说话人分离预设。"
   },
   "vibevoice-hf": {
     order: 20,
@@ -107,6 +107,7 @@ function customComposeProfileSuitableModels(id: string): string[] {
     "funasr-gateway": [
       "sensevoicesmall",
       "speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "speech_ngram_lm_zh-cn-ai-wesp-fst",
       "speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
       "punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
       "speech_campplus_sv_zh-cn_16k-common",

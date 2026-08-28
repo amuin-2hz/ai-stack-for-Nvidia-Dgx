@@ -19,8 +19,11 @@ x-ai-stack:
         role: vad
         required: true
       - model_id: speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch
-        role: diarization-asr
+        role: asr
         required: true
+      - model_id: speech_ngram_lm_zh-cn-ai-wesp-fst
+        role: ngram-language-model
+        required: false
       - model_id: punc_ct-transformer_zh-cn-common-vocab272727-pytorch
         role: punctuation
         required: false
@@ -42,27 +45,72 @@ services:
     container_name: custom_funasr_gateway_service
     gpus: all
     ipc: host
+    init: true
+    stop_grace_period: 30s
     ports:
       - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${FUNASR_PUBLIC_PORT:-8011}:8011"
     restart: ${AI_STACK_RESTART_POLICY:-unless-stopped}
+    depends_on:
+      funasr-ngram-runtime:
+        condition: service_started
     volumes:
-      - ../../../models:/models:ro
+      - ${MODELS_ROOT:-../../../models}:/models:ro
       - ../../../cache:/cache
     environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_VISIBLE_DEVICES:-all}
       - MODEL_PROVIDER=funasr
       - MODEL_DEVICE=${MODEL_DEVICE:-cuda}
       - MODEL_DOWNLOAD_ON_STARTUP=false
       - MODELSCOPE_CACHE=/cache/modelscope
-      - ASR_MODEL_ID=${ASR_MODEL_ID:-iic/SenseVoiceSmall}
-      - ASR_RUNTIME_MODEL=${ASR_RUNTIME_MODEL:-/models/sensevoicesmall}
+      - SENSEVOICE_MODEL_ID=${SENSEVOICE_MODEL_ID:-iic/SenseVoiceSmall}
+      - SENSEVOICE_RUNTIME_MODEL=${SENSEVOICE_RUNTIME_MODEL:-/models/sensevoicesmall}
+      - PARAFORMER_MODEL_ID=${PARAFORMER_MODEL_ID:-iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch}
+      - PARAFORMER_RUNTIME_MODEL=${PARAFORMER_RUNTIME_MODEL:-/models/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch}
       - ASR_VAD_MODEL_ID=${ASR_VAD_MODEL_ID:-iic/speech_fsmn_vad_zh-cn-16k-common-pytorch}
       - ASR_VAD_RUNTIME_MODEL=${ASR_VAD_RUNTIME_MODEL:-/models/speech_fsmn_vad_zh-cn-16k-common-pytorch}
-      - DIARIZATION_ASR_MODEL_ID=${DIARIZATION_ASR_MODEL_ID:-iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch}
-      - DIARIZATION_ASR_RUNTIME_MODEL=${DIARIZATION_ASR_RUNTIME_MODEL:-/models/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch}
-      - DIARIZATION_PUNC_MODEL_ID=${DIARIZATION_PUNC_MODEL_ID:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}
-      - DIARIZATION_PUNC_RUNTIME_MODEL=${DIARIZATION_PUNC_RUNTIME_MODEL:-/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}
+      - PUNC_MODEL_ID=${PUNC_MODEL_ID:-iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}
+      - PUNC_RUNTIME_MODEL=${PUNC_RUNTIME_MODEL:-/models/punc_ct-transformer_zh-cn-common-vocab272727-pytorch}
+      - NGRAM_LM_MODEL_ID=${NGRAM_LM_MODEL_ID:-iic/speech_ngram_lm_zh-cn-ai-wesp-fst}
+      - NGRAM_LM_RUNTIME_MODEL=${NGRAM_LM_RUNTIME_MODEL:-/models/speech_ngram_lm_zh-cn-ai-wesp-fst}
+      - NGRAM_RUNTIME_URL=${NGRAM_RUNTIME_URL:-ws://funasr-ngram-runtime:10095}
       - DIARIZATION_MODEL_ID=${DIARIZATION_MODEL_ID:-iic/speech_campplus_sv_zh-cn_16k-common}
       - DIARIZATION_RUNTIME_MODEL=${DIARIZATION_RUNTIME_MODEL:-/models/speech_campplus_sv_zh-cn_16k-common}
       - FULL_DIARIZATION_MODEL_ID=${FULL_DIARIZATION_MODEL_ID:-iic/speech_campplus_speaker-diarization_common}
       - FULL_DIARIZATION_RUNTIME_MODEL=${FULL_DIARIZATION_RUNTIME_MODEL:-/models/speech_campplus_speaker-diarization_common}
       - ASR_BATCH_SIZE_SECONDS=${ASR_BATCH_SIZE_SECONDS:-300}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  funasr-ngram-runtime:
+    image: ${FUNASR_NGRAM_RUNTIME_IMAGE:-registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-cpu-0.4.7}
+    container_name: custom_funasr_ngram_runtime_service
+    init: true
+    restart: ${AI_STACK_RESTART_POLICY:-unless-stopped}
+    volumes:
+      - ${MODELS_ROOT:-../../../models}:/models:ro
+      - ../../../cache/funasr-runtime:/workspace/models
+    expose:
+      - "10095"
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - >-
+        cd /workspace/FunASR/runtime &&
+        bash ./run_server.sh
+        --download-model-dir /workspace/models
+        --model-dir ${NGRAM_ASR_MODEL_ID:-iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx}
+        --vad-dir ${NGRAM_VAD_MODEL_ID:-iic/speech_fsmn_vad_zh-cn-16k-common-onnx}
+        --punc-dir ${NGRAM_PUNC_MODEL_ID:-iic/punc_ct-transformer_cn-en-common-vocab471067-large-onnx}
+        --lm-dir /models/speech_ngram_lm_zh-cn-ai-wesp-fst
+        --port 10095
+        --certfile 0 &&
+        exec tail -f /dev/null
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/10095'"]
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      start_period: 10m
