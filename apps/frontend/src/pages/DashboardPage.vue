@@ -1,0 +1,340 @@
+<!--
+  @author Amuin
+  @created 2026-06-25
+  @description 仪表盘页面：横幅、统计卡片、资源仪表盘、已发布模型表与近期任务侧栏。
+               Dashboard page: banner, stat cards, resource gauges, published models, and recent tasks sidebar.
+-->
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { message } from 'ant-design-vue';
+import { ClearOutlined, DownloadOutlined, MoreOutlined } from '@ant-design/icons-vue';
+import type { GpuDeviceInfo, TaskRecord } from '../types';
+import {
+  locale, t, api, refresh, view, system, readyModels, servingModelCount, activeContainerCount,
+  gpuSummary, gpuPercent, cpuPercent, memoryPercent, storagePercent, formatBytes,
+  publishedModelRows, rightPanelCollapsed, dashboardTasks, selectedTaskId,
+  loadTaskLog, taskAlias, taskProgress, shortModelPath, taskTarget
+} from '../composables/useApp';
+import {
+  dashboardDockerColor, dashboardDockerLabel,
+  homeRecommendation
+} from '../composables/useDashboard';
+import HeroBanner from '../components/shared/HeroBanner.vue';
+import StatCard from '../components/shared/StatCard.vue';
+import GaugeRing from '../components/shared/GaugeRing.vue';
+import ModelDownloadModal from '../components/model/ModelDownloadModal.vue';
+
+const cleanupRunning = ref(false);
+type CleanupResult = {
+  ok: boolean;
+  removed_count: number;
+  reclaimed_bytes: number;
+  failures: Array<{ name: string; detail: string }>;
+};
+
+async function cleanupFailedResources() {
+  if (cleanupRunning.value) return;
+  cleanupRunning.value = true;
+  try {
+    const result = await api<CleanupResult>('/containers/cleanup-failed', {
+      method: 'POST'
+    });
+    await refresh();
+    if (result.failures.length) {
+      message.warning(
+        locale.value === 'zh-CN'
+          ? `已清理 ${result.removed_count} 个容器，${result.failures.length} 个清理失败`
+          : `Removed ${result.removed_count} containers; ${result.failures.length} failed`
+      );
+    } else if (result.removed_count) {
+      message.success(
+        locale.value === 'zh-CN'
+          ? `已清理 ${result.removed_count} 个失败容器，回收 ${formatBytes(result.reclaimed_bytes)}`
+          : `Removed ${result.removed_count} failed containers and reclaimed ${formatBytes(result.reclaimed_bytes)}`
+      );
+    } else {
+      message.info(locale.value === 'zh-CN' ? '没有发现可清理的失败项' : 'No failed resources to clean');
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : String(error));
+  } finally {
+    cleanupRunning.value = false;
+  }
+}
+
+const modelDownloadModalOpen = ref(false);
+const activeDashboardTaskStatuses = new Set(['queued', 'running', 'paused', 'canceling']);
+const recentDashboardTasks = computed(() => dashboardTasks.value
+  .filter((task: TaskRecord) => task.type === 'download' || task.type === 'deploy')
+  .slice(0, 8)
+);
+const storageVolume = computed(() => system.value?.device?.storage?.volumes?.[0]);
+const storageUsageText = computed(() => {
+  const volume = storageVolume.value;
+  if (!volume) return '-';
+  return formatBytes(volume.used_bytes) + ' / ' + formatBytes(volume.total_bytes);
+});
+const gpuDevices = computed(() => system.value?.device?.gpu?.devices ?? []);
+const hasMultipleGpus = computed(() => gpuDevices.value.length > 1);
+
+function gpuIndex(device: GpuDeviceInfo, fallback: number) {
+  return Number.isFinite(Number(device.index)) ? Number(device.index) : fallback;
+}
+
+function boundedPercent(value: unknown) {
+  const percent = Number(value);
+  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
+}
+
+function gpuUtilization(device: GpuDeviceInfo) {
+  return boundedPercent(device.utilization_gpu_percent);
+}
+
+function gpuMemoryPercent(device: GpuDeviceInfo) {
+  const total = Number(device.memory_total_mib);
+  const used = Number(device.memory_used_mib);
+  return total > 0 && Number.isFinite(used) ? boundedPercent((used / total) * 100) : 0;
+}
+
+function gpuMemoryText(device: GpuDeviceInfo) {
+  const total = Number(device.memory_total_mib);
+  const used = Number(device.memory_used_mib);
+  if (!(total > 0) || !Number.isFinite(used)) return '-';
+  return (used / 1024).toFixed(1) + ' / ' + (total / 1024).toFixed(1) + ' GB';
+}
+
+function gpuMetricText(value: number | null | undefined, suffix: string) {
+  if (value === null || value === undefined) return '-';
+  const metric = Number(value);
+  return Number.isFinite(metric) ? Math.round(metric) + suffix : '-';
+}
+
+function taskKindClass(task: TaskRecord) {
+  if (task.status === 'failed' || task.status === 'canceled') return 'failed';
+  if (task.status === 'succeeded') return 'succeeded';
+  if (activeDashboardTaskStatuses.has(task.status)) return 'active';
+  return 'neutral';
+}
+
+function dashboardTaskLabel(task: TaskRecord) {
+  const active = activeDashboardTaskStatuses.has(task.status);
+  const failed = task.status === 'failed' || task.status === 'canceled';
+  if (task.type === 'download') {
+    if (active) return locale.value === 'zh-CN' ? '下载中' : 'Downloading';
+    if (failed) return locale.value === 'zh-CN' ? '下载失败' : 'Download Failed';
+    return locale.value === 'zh-CN' ? '下载成功' : 'Downloaded';
+  }
+  if (active) return locale.value === 'zh-CN' ? '部署中' : 'Deploying';
+  if (failed) return locale.value === 'zh-CN' ? '部署失败' : 'Deploy Failed';
+  return locale.value === 'zh-CN' ? '部署成功' : 'Deployed';
+}
+
+function dashboardTaskFolderName(task: TaskRecord) {
+  const target = taskTarget(task).replace(/\\/g, '/').replace(/\/$/, '');
+  const parts = target.split('/').filter(Boolean);
+  return parts.at(-1) || shortModelPath(target);
+}
+
+function dashboardTaskSourceName(task: TaskRecord) {
+  const provider = String(task.metadata?.provider ?? "").trim().toLowerCase();
+  if (["ms", "modelscope", "model_scope"].includes(provider)) return "ModelScope";
+  if (["hf", "huggingface", "hugging_face"].includes(provider)) return "Hugging Face";
+  return String(task.metadata?.provider ?? "-");
+}
+
+function dashboardTaskSummaryRows(task: TaskRecord) {
+  if (task.type === 'deploy') {
+    const plan = task.metadata?.runtime_plan;
+    return [
+      { label: locale.value === 'zh-CN' ? '部署容器' : 'Runtime', value: String(task.metadata?.service_type ?? task.metadata?.runtime ?? task.metadata?.key ?? '-') },
+      { label: locale.value === 'zh-CN' ? '地址' : 'Address', value: String(plan?.base_url ?? plan?.health_url ?? '-') }
+    ];
+  }
+  return [
+    { label: t('source'), value: dashboardTaskSourceName(task) },
+    { label: locale.value === 'zh-CN' ? '目录' : 'Folder', value: dashboardTaskFolderName(task) }
+  ];
+}
+
+function openDashboardTask(task: TaskRecord) {
+  selectedTaskId.value = task.id;
+  view.value = 'tasks';
+  void loadTaskLog(task.id);
+}
+</script>
+
+<template>
+  <section :class="['prototype-page dashboard-home-layout', rightPanelCollapsed ? 'is-right-panel-collapsed' : '']">
+    <div class="dashboardHomeMain">
+      <!-- Hero Banner -->
+      <HeroBanner :title="t('dashboard')" :eyebrow="t('studioName')" :desc="homeRecommendation">
+        <template #decor>
+          <div class="dashboardBannerMeta">
+            <a-tag :color="dashboardDockerColor">{{ dashboardDockerLabel }}</a-tag>
+          </div>
+        </template>
+      </HeroBanner>
+
+      <!-- 统计卡片 -->
+      <section class="overviewCards">
+        <div class="statCard dashboardReadyCard">
+          <span>{{ t('readyModels') }}</span>
+          <div class="dashboardReadyCardMain">
+            <strong>{{ readyModels }}</strong>
+            <a-button class="dashboardDownloadButton" size="small" @click="modelDownloadModalOpen = true">
+              <template #icon><DownloadOutlined /></template>
+              {{ locale === 'zh-CN' ? '去下载' : 'Download' }}
+            </a-button>
+          </div>
+        </div>
+        <StatCard :label="locale === 'zh-CN' ? '运行中模型' : 'Running Models'" :value="servingModelCount" />
+        <StatCard :label="t('gpu')" :value="gpuSummary" />
+        <StatCard :label="t('activeContainers')" :value="activeContainerCount" />
+      </section>
+
+      <!-- 资源仪表盘 -->
+      <section class="resourcePanel">
+        <div class="panelHeader resourcePanelHeader">
+          <h2>{{ locale === 'zh-CN' ? '资源仪表盘' : 'Resource Dashboard' }}</h2>
+          <a-popconfirm
+            :title="locale === 'zh-CN' ? '清理失败的运行资源？' : 'Clean failed runtime resources?'"
+            :description="locale === 'zh-CN' ? '仅删除 AI Stack 管理的失败容器和已结束任务容器；不会停止运行中服务，也不会删除模型或镜像。' : 'Only failed AI Stack containers and finished task containers are removed. Running services, models, and images stay untouched.'"
+            :ok-text="locale === 'zh-CN' ? '开始清理' : 'Clean now'"
+            :cancel-text="locale === 'zh-CN' ? '取消' : 'Cancel'"
+            placement="bottomRight"
+            @confirm="cleanupFailedResources"
+          >
+            <a-button class="resourceCleanupButton" size="small" :loading="cleanupRunning">
+              <template #icon><ClearOutlined /></template>
+              {{ locale === 'zh-CN' ? '清理缓存' : 'Clean cache' }}
+            </a-button>
+          </a-popconfirm>
+        </div>
+        <div class="resourceGrid">
+          <div class="resourceCard">
+            <strong class="resourceName">{{ t('cpu') }}</strong>
+            <GaugeRing :percent="cpuPercent" :size="80" />
+            <span class="resourceMeta">{{ system?.device?.cpu?.cores ?? 0 }} cores</span>
+          </div>
+          <div class="resourceCard">
+            <strong class="resourceName">{{ t('memory') }}</strong>
+            <GaugeRing :percent="memoryPercent" :size="80" />
+            <span class="resourceMeta">{{ formatBytes(Math.max(0,(system?.device?.memory?.total_bytes??0)-(system?.device?.memory?.free_bytes??0))) }} / {{ formatBytes(system?.device?.memory?.total_bytes??0) }}</span>
+          </div>
+          <div class="resourceCard">
+            <strong class="resourceName">{{ t('storage') }}</strong>
+            <GaugeRing :percent="storagePercent" :size="80" />
+            <span class="resourceMeta">{{ storageUsageText }}</span>
+          </div>
+          <div class="resourceCard gpuResourceCard">
+            <div class="resourceCardHeader">
+              <strong class="resourceName">{{ t('gpu') }}</strong>
+              <a-popover
+                v-if="hasMultipleGpus"
+                trigger="click"
+                placement="bottomRight"
+                overlay-class-name="gpuTelemetryPopover"
+              >
+                <template #content>
+                  <div class="gpuTelemetryPanel">
+                    <div class="gpuTelemetryTitle">
+                      <span>{{ locale === 'zh-CN' ? '显卡用量' : 'GPU usage' }}</span>
+                      <b>{{ gpuDevices.length }} {{ locale === 'zh-CN' ? '张卡' : 'devices' }}</b>
+                    </div>
+                    <div
+                      v-for="(gpu, gpuPosition) in gpuDevices"
+                      :key="gpu.uuid || gpu.id || gpuPosition"
+                      class="gpuTelemetryDevice"
+                    >
+                      <div class="gpuTelemetryDeviceHead">
+                        <span>GPU {{ gpuIndex(gpu, gpuPosition) }}</span>
+                        <strong :title="gpu.name || ''">{{ gpu.name || (locale === 'zh-CN' ? '未知显卡' : 'Unknown GPU') }}</strong>
+                      </div>
+                      <div class="gpuTelemetryMetric">
+                        <div><span>{{ locale === 'zh-CN' ? '利用率' : 'Utilization' }}</span><b>{{ gpuMetricText(gpu.utilization_gpu_percent, '%') }}</b></div>
+                        <span class="gpuTelemetryTrack"><i :style="{ width: gpuUtilization(gpu) + '%' }"></i></span>
+                      </div>
+                      <div class="gpuTelemetryMetric">
+                        <div><span>{{ locale === 'zh-CN' ? '显存' : 'Memory' }}</span><b>{{ gpuMemoryText(gpu) }}</b></div>
+                        <span class="gpuTelemetryTrack is-memory"><i :style="{ width: gpuMemoryPercent(gpu) + '%' }"></i></span>
+                      </div>
+                      <div class="gpuTelemetryAux">
+                        <span>{{ locale === 'zh-CN' ? '温度' : 'Temp' }} <b>{{ gpuMetricText(gpu.temperature_celsius, '°C') }}</b></span>
+                        <span>{{ locale === 'zh-CN' ? '功耗' : 'Power' }} <b>{{ gpuMetricText(gpu.power_draw_watts, 'W') }}</b></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <button
+                  type="button"
+                  class="gpuTelemetryButton"
+                  :aria-label="locale === 'zh-CN' ? '查看各显卡用量' : 'View per-GPU usage'"
+                  :title="locale === 'zh-CN' ? '查看各显卡用量' : 'View per-GPU usage'"
+                >
+                  <MoreOutlined />
+                </button>
+              </a-popover>
+            </div>
+            <GaugeRing :percent="gpuPercent" :size="80" />
+            <span class="resourceMeta">{{ system?.device?.gpu?.available ? gpuSummary : t('unavailable') }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 已发布容器模型 -->
+      <section class="modelPanel">
+        <div class="panelHeader"><h2>{{ t('publishedContainerModels') }}</h2></div>
+        <div class="modelTable">
+          <div class="modelTableHead"><span>{{ t('modelName') }}</span><span>{{ t('apiAddress') }}</span></div>
+          <div class="modelTableBody">
+            <div v-for="row in publishedModelRows" :key="row.model_name+row.address" class="modelTableRow">
+              <span>{{ row.model_name }}</span><strong>{{ row.address }}</strong>
+            </div>
+            <div v-if="!publishedModelRows.length" class="modelTableEmpty">
+              <div class="emptyBoxIcon"></div>
+              <span>{{ locale === 'zh-CN' ? '暂无数据' : 'No Data' }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside v-if="!rightPanelCollapsed" class="dashboardTaskPanel" aria-label="recent tasks">
+      <div class="dashboardTaskPanelHead">
+        <h2>{{ t('recentTasks') }}</h2>
+        <span class="dashboardTaskCount">{{ recentDashboardTasks.length }}</span>
+      </div>
+      <div class="dashboardTaskList">
+        <button
+          v-for="task in recentDashboardTasks"
+          :key="task.id"
+          :class="['dashboardTaskRow', ['running','queued','paused'].includes(task.status) ? 'hasProgressBeam' : '']"
+          :style="{ '--task-progress': taskProgress(task) + '%' }"
+          type="button"
+          @click="openDashboardTask(task)"
+        >
+          <span v-if="['running','queued','paused'].includes(task.status)" class="dashboardTaskBeam"></span>
+          <span class="dashboardTaskRowMain">
+            <span class="dashboardTaskRowTop">
+              <span :class="['dashboardTaskType', taskKindClass(task)]">{{ dashboardTaskLabel(task) }}</span>
+              <strong class="dashboardTaskTitle">{{ taskAlias(task) }}</strong>
+            </span>
+            <span class="dashboardTaskSummary">
+              <span v-for="row in dashboardTaskSummaryRows(task)" :key="row.label" class="dashboardTaskSummaryLine">
+                <span>{{ row.label }}{{ locale === 'zh-CN' ? '：' : ':' }}</span>
+                <b :title="row.value">{{ row.value }}</b>
+              </span>
+            </span>
+          </span>
+          <span v-if="task.status === 'running' || task.status === 'queued' || task.status === 'paused'" class="dashboardTaskRowSide">
+            <span class="dashboardTaskProgress">{{ taskProgress(task) }}%</span>
+          </span>
+        </button>
+        <div v-if="!recentDashboardTasks.length" class="dashboardTaskEmpty">
+          {{ locale === 'zh-CN' ? '暂无任务' : 'No tasks' }}
+        </div>
+      </div>
+    </aside>
+    <ModelDownloadModal :open="modelDownloadModalOpen" @close="modelDownloadModalOpen = false" />
+  </section>
+</template>

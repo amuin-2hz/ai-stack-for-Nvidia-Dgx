@@ -1,0 +1,32 @@
+services:
+  api:
+    container_name: api
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "${AI_STACK_BIND_ADDR:-0.0.0.0}:8000:8000"
+    volumes:
+      - ${MODELS_ROOT:-../../models}:/models
+      - ../../state:/state
+      - ../../configs:/configs
+      - ../../logs:/logs
+      - /etc/os-release:/host/etc/os-release:ro
+      - /sys/class/dmi/id:/host/sys/class/dmi/id:ro
+    environment:
+      - MODELS_ROOT=/models
+      - STATE_ROOT=/state
+      - VLLM_PUBLIC_PORT=30000
+      - TRTLLM_PUBLIC_PORT=31000
+      - AUDIO_PUBLIC_PORT=32000
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ../../apps/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${AI_STACK_BIND_ADDR:-0.0.0.0}:8888:3000"
+    depends_on:
+      - api
+    restart: unless-stopped

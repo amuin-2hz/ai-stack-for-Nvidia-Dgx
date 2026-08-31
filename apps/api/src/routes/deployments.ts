@@ -1,0 +1,312 @@
+import { readFile } from "node:fs/promises";
+import { readBody, sendJson } from "../serverUtils.js";
+import { getContainerConfig, listActiveDeployments, getActiveDeployment, deleteDeployment, listTasks } from "../store.js";
+import { createDeploymentPlan as buildDeploymentPlan, startDeployment } from "../deploymentManager.js";
+import { compatibilityFor, getModel, listModels } from "../modelRegistry.js";
+import { proxyHttp, parseMaybeJson } from "../httpProxy.js";
+import { runCommand } from "../utils.js";
+import { inspectGpuDevices, resolveGpuDeviceIds, type GpuDeviceInfo } from "../gpuDevices.js";
+import { validateVllmRuntimeArgs } from "../runtimePlan.js";
+
+import type { ModelRecord, ServiceType } from "../types.js";
+
+export function register(
+  route: (method: string, path: string, handler: (...args: any[]) => Promise<void>) => void,
+  dh: any,
+  modelsRoot: string,
+  workspaceRoot: string,
+  logsRoot: string
+) {
+  route("GET", "/deployments", async (_req: any, res: any) => {
+    const configured = await dh.configuredDeployments();
+    const active = await dh.liveActiveDeployments();
+    sendJson(res, 200, { deployments: dh.mergeDeployments(configured, active) });
+  });
+
+  route("GET", "/deployments/:deployment_id", async (_req: any, res: any, params: any) => {
+    const d = await dh.findDeployment(params.deployment_id);
+    if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
+    sendJson(res, 200, d);
+  });
+
+  route("GET", "/deployments/:deployment_id/health", async (_req: any, res: any, params: any) => {
+    const d = await dh.findDeployment(params.deployment_id);
+    if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
+    const healthTarget = d.health_url ?? dh.runtimeHealthUrl(d.service_type);
+    const result = await proxyHttp("GET", healthTarget);
+    sendJson(res, result.ok ? 200 : 503, {
+      deployment_id: d.deployment_id, service_type: d.service_type,
+      status: result.ok ? "healthy" : "unavailable",
+      target: healthTarget, response: parseMaybeJson(result.body)
+    });
+  });
+
+  route("GET", "/deployments/:deployment_id/logs", async (req: any, res: any, params: any) => {
+    const d = await dh.findDeployment(params.deployment_id);
+    if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
+    const lines = boundedLineCount(req.url);
+    const task = latestDeploymentTask(d);
+    const taskLogs = task?.log_path ? await readTailLines(task.log_path, lines) : null;
+    const dockerLogs = d.container_name ? await runCommand("docker", ["logs", "--tail", String(lines), d.container_name], 10000) : null;
+    const dockerOutput = dockerLogs ? [dockerLogs.stdout, dockerLogs.stderr].filter(Boolean).join("\n") : "";
+    sendJson(res, dockerLogs?.ok || taskLogs !== null ? 200 : 503, {
+      deployment_id: d.deployment_id,
+      service_type: d.service_type,
+      container_name: d.container_name,
+      task_id: task?.id ?? null,
+      log_path: task?.log_path ?? null,
+      source: dockerLogs?.ok ? "docker" : taskLogs !== null ? "task" : "none",
+      logs: dockerLogs?.ok ? dockerOutput : taskLogs ?? "",
+      detail: dockerLogs?.ok
+        ? "Container logs read successfully."
+        : taskLogs !== null
+          ? "Docker logs were unavailable; returned the latest deployment task log."
+          : dockerOutput || "No deployment task log or container log is available yet."
+    });
+  });
+
+  route("POST", "/deployments/:deployment_id/stop", async (_req: any, res: any, params: any) => {
+    const active = getActiveDeployment(params.deployment_id);
+    const d = active ? dh.normalizeDeployment(active) : await dh.findDeployment(params.deployment_id);
+    if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
+    if (!d.container_name) return sendJson(res, 400, { detail: "Deployment has no container to stop." });
+    const result = await runCommand("docker", ["rm", "-f", d.container_name], 30000);
+    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    const missingContainer = /No such container/i.test(output);
+    if (active && (result.ok || missingContainer)) deleteDeployment(params.deployment_id);
+    const detail = missingContainer ? "Container was already absent; deployment state is treated as stopped." : output;
+    sendJson(res, result.ok || missingContainer ? 200 : 500, { deployment_id: params.deployment_id, container_name: d.container_name, status: result.ok || missingContainer ? "stopped" : "failed", detail });
+  });
+
+  route("POST", "/deployments/:deployment_id/restart", async (_req: any, res: any, params: any) => {
+    const d = await dh.findDeployment(params.deployment_id);
+    if (!d) return sendJson(res, 404, { detail: "Unknown deployment: " + params.deployment_id });
+    if (!d.container_name) return sendJson(res, 400, { detail: "Deployment has no container to restart." });
+    const result = await runCommand("docker", ["restart", d.container_name], 30000);
+    const detail = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    sendJson(res, result.ok ? 200 : 500, {
+      deployment_id: d.deployment_id,
+      container_name: d.container_name,
+      status: result.ok ? "restarted" : "failed",
+      detail: detail || (result.ok ? "Container restarted." : "Container restart failed.")
+    });
+  });
+
+  route("POST", "/deployments", async (req: any, res: any) => {
+    const body = await readBody<{ model_id?: string; service_type?: ServiceType; openai_model?: string; args?: Record<string, unknown>; start?: boolean }>(req);
+    if (!body.model_id) return sendJson(res, 400, { detail: "model_id is required" });
+    const serviceType = body.service_type ?? "vllm";
+    const model = await getModel(modelsRoot, body.model_id);
+    if (!model) return sendJson(res, 404, { detail: "Unknown model: " + body.model_id });
+    const localModelIds = new Set((await listModels(modelsRoot)).map((m: any) => m.id));
+    if (body.openai_model && body.openai_model !== model.id && localModelIds.has(body.openai_model))
+      return sendJson(res, 409, { detail: "openai_model points to a different local model." });
+    const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
+    if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
+    const gpuSelection = await validateDeploymentGpuArgs(validatedArgs.args, serviceType);
+    if (gpuSelection.detail) return sendJson(res, 400, { detail: gpuSelection.detail });
+    body.args = gpuSelection.args;
+
+    const blocker = deploymentBlocker(model, serviceType, body.start === true);
+    if (blocker) return sendJson(res, 409, blocker);
+    const gpuMemoryBlocker = body.start === true ? selectedGpuMemoryBlocker(model, gpuSelection.devices) : null;
+    if (gpuMemoryBlocker) return sendJson(res, 409, gpuMemoryBlocker);
+    const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
+    if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
+    const containerSettings = getContainerConfig(serviceType);
+    await dh.liveActiveDeployments();
+    if (body.start) {
+      sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
+      return;
+    }
+    sendJson(res, 200, buildDeploymentPlan(deployment, model, serviceType, body.openai_model ?? model.id, body.args ?? {}, workspaceRoot, containerSettings));
+  });
+
+  route("POST", "/deployments/start", async (req: any, res: any) => {
+    const body = await readBody<{ model_id?: string; service_type?: ServiceType; openai_model?: string; args?: Record<string, unknown> }>(req);
+    if (!body.model_id) return sendJson(res, 400, { detail: "model_id is required" });
+    const serviceType = body.service_type ?? "vllm";
+    const model = await getModel(modelsRoot, body.model_id);
+    if (!model) return sendJson(res, 404, { detail: "Unknown model: " + body.model_id });
+    const localModelIds = new Set((await listModels(modelsRoot)).map((m: any) => m.id));
+    if (body.openai_model && body.openai_model !== model.id && localModelIds.has(body.openai_model))
+      return sendJson(res, 409, { detail: "openai_model points to a different local model." });
+    const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
+    if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
+    const gpuSelection = await validateDeploymentGpuArgs(validatedArgs.args, serviceType);
+    if (gpuSelection.detail) return sendJson(res, 400, { detail: gpuSelection.detail });
+    body.args = gpuSelection.args;
+
+    const blocker = deploymentBlocker(model, serviceType, true);
+    if (blocker) return sendJson(res, 409, blocker);
+    const gpuMemoryBlocker = selectedGpuMemoryBlocker(model, gpuSelection.devices);
+    if (gpuMemoryBlocker) return sendJson(res, 409, gpuMemoryBlocker);
+    const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
+    if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
+    const containerSettings = getContainerConfig(serviceType);
+    await dh.liveActiveDeployments();
+    const existing = listActiveDeployments().find(
+      (d: any) => d.service_type === serviceType && d.model_id === model.id &&
+        d.openai_model === (body.openai_model ?? model.id) && d.status === "running"
+    );
+    if (existing) {
+      const normalized = dh.normalizeDeployment(existing);
+      if (await dh.deploymentContainerIsRunning(normalized.container_name)) {
+        if (deploymentArgsMatch(normalized.args, body.args, serviceType)) {
+          return sendJson(res, 200, { ...normalized, status: "already_running", openai_models: [normalized.openai_model], detail: "Deployment is already running with the requested parameters." });
+        }
+      } else {
+        deleteDeployment(normalized.deployment_id);
+      }
+    }
+    sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
+  });
+
+function boundedLineCount(rawUrl: string | undefined): number {
+  const value = Number(new URL(rawUrl ?? "/", "http://localhost").searchParams.get("lines") ?? "200");
+  if (!Number.isFinite(value)) return 200;
+  return Math.max(1, Math.min(2000, Math.trunc(value)));
+}
+
+async function readTailLines(path: string, lines: number): Promise<string | null> {
+  try {
+    const body = await readFile(path, "utf-8");
+    return body.split(/\r?\n/).slice(-lines).join("\n");
+  } catch {
+    return null;
+  }
+}
+
+function latestDeploymentTask(deployment: any) {
+  const taskId = typeof deployment.task_id === "string" ? deployment.task_id : "";
+  const tasks = listTasks();
+  if (taskId) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (task) return task;
+  }
+  return tasks.find((task) =>
+    task.type === "deploy" &&
+    (
+      task.metadata?.deployment_id === deployment.deployment_id ||
+      task.metadata?.service_type === deployment.service_type ||
+      task.metadata?.model_id === deployment.model_id
+    )
+  );
+}
+
+function deploymentBlocker(model: ModelRecord, serviceType: ServiceType, blockMemory: boolean) {
+  const compat = compatibilityFor(model, serviceType);
+  if (compat.status === "unsupported") {
+    return { detail: compat.reason, compatibility: compat, audit: model.audit };
+  }
+  const memory = model.audit?.gpu_memory;
+  if (blockMemory && memory?.status === "insufficient" && ["vllm", "trtllm", "pytorch"].includes(serviceType)) {
+    return {
+      detail: memory.reason,
+      compatibility: compat,
+      audit: model.audit,
+      repair_actions: [
+        { action: "lower_context_length", label: "Lower context length or max tokens." },
+        { action: "stop_other_runtimes", label: "Stop other GPU runtimes and retry." },
+        { action: "choose_smaller_model", label: "Choose a smaller or quantized model." }
+      ]
+    };
+  }
+  return null;
+}
+
+async function validateDeploymentGpuArgs(
+  args: Record<string, unknown>,
+  serviceType: ServiceType
+): Promise<{ args: Record<string, unknown>; devices: GpuDeviceInfo[]; detail?: string }> {
+  if (args.gpu_device_ids === undefined) return { args, devices: [] };
+  try {
+    const inventory = await inspectGpuDevices();
+    if (!inventory.devices.length) return { args, devices: [], detail: inventory.detail || "No NVIDIA GPU is available." };
+    const selection = resolveGpuDeviceIds(args.gpu_device_ids, inventory.devices);
+    const count = selection.ids?.length ?? 0;
+    if (serviceType === "vllm" && Number(args.tensor_parallel_size ?? 1) !== count) {
+      return { args, devices: selection.devices, detail: "tensor_parallel_size must equal the number of selected GPUs." };
+    }
+    if (serviceType === "trtllm") {
+      const workers = Number(args.tp_size ?? 1) * Number(args.pp_size ?? 1);
+      if (workers !== count) return { args, devices: selection.devices, detail: "tp_size × pp_size must equal the number of selected GPUs." };
+    }
+    return { args: { ...args, gpu_device_ids: selection.ids }, devices: selection.devices };
+  } catch (error) {
+    return { args, devices: [], detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function selectedGpuMemoryBlocker(model: ModelRecord, devices: GpuDeviceInfo[]) {
+  if (!devices.length) return null;
+  const requiredBytes = Number(model.audit?.gpu_memory?.required_bytes);
+  if (!Number.isFinite(requiredBytes) || requiredBytes <= 0) return null;
+  const requiredPerGpuMiB = requiredBytes / devices.length / 1024 / 1024;
+  const insufficient = devices.filter((device) =>
+    device.memory_free_mib !== null && Number.isFinite(device.memory_free_mib) && device.memory_free_mib < requiredPerGpuMiB
+  );
+  if (!insufficient.length) return null;
+  return {
+    detail: "The selected GPU set does not have enough free memory per device. Required about "
+      + Math.ceil(requiredPerGpuMiB) + " MiB on each GPU; insufficient: "
+      + insufficient.map((device) => "GPU " + device.index + " (" + Math.floor(device.memory_free_mib ?? 0) + " MiB free)").join(", ") + ".",
+    audit: model.audit,
+    selected_gpus: devices,
+    repair_actions: [
+      { action: "choose_other_gpu", label: "Choose GPUs with more free memory." },
+      { action: "stop_other_runtimes", label: "Stop other GPU runtimes and retry." },
+      { action: "choose_smaller_model", label: "Choose a smaller or quantized model." }
+    ]
+  };
+}
+
+}
+
+export function validateDeploymentRuntimeArgs(
+  args: Record<string, unknown>,
+  serviceType: ServiceType,
+  modelId: string,
+  openaiModel: string
+): { args: Record<string, unknown>; detail?: string } {
+  return serviceType === "vllm" ? validateVllmRuntimeArgs(args, modelId, openaiModel) : { args };
+}
+
+export function deploymentArgsMatch(
+  existing: Record<string, unknown> | undefined,
+  requested: Record<string, unknown> | undefined,
+  serviceType?: ServiceType
+): boolean {
+  if (!existing) return !requested || Object.keys(requested).length === 0;
+  const keys = serviceType === "vllm"
+    ? [
+        "max_model_len", "gpu_memory_utilization", "max_num_seqs", "tensor_parallel_size", "kv_cache_dtype",
+        "gpu_device_ids", "enable_auto_tool_choice", "tool_call_parser", "reasoning_parser"
+      ]
+    : serviceType === "trtllm"
+      ? ["max_batch_size", "max_num_tokens", "kv_cache_free_gpu_memory_fraction", "tp_size", "pp_size", "gpu_device_ids"]
+      : undefined;
+  const existingArgs = pickArgs(existing, keys);
+  const requestedArgs = pickArgs(requested ?? {}, keys);
+  if (serviceType === "vllm") {
+    existingArgs.enable_auto_tool_choice = existingArgs.enable_auto_tool_choice === true;
+    requestedArgs.enable_auto_tool_choice = requestedArgs.enable_auto_tool_choice === true;
+  }
+  return stableJson(existingArgs) === stableJson(requestedArgs);
+}
+
+function pickArgs(args: Record<string, unknown>, keys?: string[]): Record<string, unknown> {
+  if (!keys) return args;
+  return Object.fromEntries(keys.filter((key) => key in args).map((key) => [key, args[key]]));
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item))
+      .join(",") + "}";
+  }
+  return JSON.stringify(value) ?? "undefined";
+}

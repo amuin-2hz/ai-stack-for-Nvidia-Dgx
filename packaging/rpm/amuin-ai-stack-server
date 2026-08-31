@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+APP_ROOT="/opt/amuin-ai-stack"
+APP_EXECUTABLE="$APP_ROOT/amuin-ai-stack"
+APP_SERVER="$APP_ROOT/resources/app.asar.unpacked/apps/api/dist/server.js"
+RUNTIME_SOURCE="$APP_ROOT/resources/app.asar.unpacked"
+DATA_ROOT="${AI_STACK_BASE:-/var/lib/amuin-ai-stack}"
+TOKEN_FILE="${AI_STACK_ADMIN_TOKEN_FILE:-$DATA_ROOT/admin-token}"
+
+mkdir -p "$DATA_ROOT" "$DATA_ROOT/models" "$DATA_ROOT/cache" "$DATA_ROOT/state" "$DATA_ROOT/logs" "$DATA_ROOT/tmp"
+
+for runtime_dir in deploy ops; do
+  if [ -d "$RUNTIME_SOURCE/$runtime_dir" ]; then
+    mkdir -p "$DATA_ROOT/$runtime_dir"
+    cp -a "$RUNTIME_SOURCE/$runtime_dir/." "$DATA_ROOT/$runtime_dir/"
+  fi
+done
+
+if [ ! -d "$DATA_ROOT/configs" ] && [ -d "$RUNTIME_SOURCE/configs" ]; then
+  cp -a "$RUNTIME_SOURCE/configs" "$DATA_ROOT/configs"
+fi
+
+if [ -z "${AI_STACK_ADMIN_TOKEN:-}" ]; then
+  if [ ! -s "$TOKEN_FILE" ]; then
+    umask 077
+    tr -d '-' < /proc/sys/kernel/random/uuid > "$TOKEN_FILE"
+  fi
+  AI_STACK_ADMIN_TOKEN="$(sed -n '1p' "$TOKEN_FILE")"
+  export AI_STACK_ADMIN_TOKEN
+fi
+
+export ELECTRON_RUN_AS_NODE=1
+export AI_STACK_SERVE_FRONTEND="${AI_STACK_SERVE_FRONTEND:-1}"
+export AI_STACK_BIND_ADDR="${AI_STACK_BIND_ADDR:-0.0.0.0}"
+export AI_STACK_BASE="$DATA_ROOT"
+export AI_STACK_DATA_DIR="${AI_STACK_DATA_DIR:-$DATA_ROOT}"
+export MODELS_ROOT="${MODELS_ROOT:-$DATA_ROOT/models}"
+export STATE_ROOT="${STATE_ROOT:-$DATA_ROOT/state}"
+export LOGS_ROOT="${LOGS_ROOT:-$DATA_ROOT/logs}"
+export UPLOADS_ROOT="${UPLOADS_ROOT:-$DATA_ROOT/state/uploads}"
+export PORT="${PORT:-8000}"
+export FRONTEND_PORT="${FRONTEND_PORT:-8888}"
+
+mkdir -p "$MODELS_ROOT" "$STATE_ROOT" "$LOGS_ROOT" "$UPLOADS_ROOT"
+cd "$DATA_ROOT"
+exec "$APP_EXECUTABLE" "$APP_SERVER"

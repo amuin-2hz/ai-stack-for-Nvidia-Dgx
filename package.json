@@ -1,0 +1,115 @@
+{
+  "name": "amuin-ai-stack",
+  "version": "1.1.1",
+  "private": true,
+  "main": "apps/main/dist/index.js",
+  "scripts": {
+    "dev": "bash scripts/dev-electron.sh",
+    "dev:web": "DISPLAY_MODE=web bash scripts/dev-electron.sh",
+    "dev:electron": "DISPLAY_MODE=electron bash scripts/dev-electron.sh",
+    "dev:xvfb": "DISPLAY_MODE=xvfb bash scripts/dev-electron.sh",
+    "build:main": "tsc -p apps/main/tsconfig.json",
+    "build:api": "npm --prefix apps/api run build",
+    "build:frontend": "npm --prefix apps/frontend run build",
+    "build": "npm run build:main && npm run build:api && npm run build:frontend",
+    "pack": "npm run pack:dir && node scripts/package-deb.js",
+    "postinstall": "npm --prefix apps/api install && npm --prefix apps/frontend install",
+    "pack:dir": "electron-builder --linux dir",
+    "build:extensions": "node scripts/build-runtime-extensions.js",
+    "release:deb": "bash scripts/build-deb.sh",
+    "release:rpm": "bash scripts/build-rpm.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.0.0",
+    "playwright": "^1.61.1",
+    "typescript": "^5.7.0"
+  },
+  "build": {
+    "appId": "com.amuin.ai-stack",
+    "productName": "AMUIN AI STACK",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "linux": {
+      "target": [
+        "deb"
+      ],
+      "category": "Science",
+      "maintainer": "amuin@example.com"
+    },
+    "deb": {
+      "depends": [
+        "bash",
+        "docker-ce | docker.io",
+        "docker-compose-plugin | docker-compose-v2",
+        "nvidia-container-toolkit | nvidia-docker2",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
+    },
+    "rpm": {
+      "artifactName": "${name}-${version}-1.${arch}.${ext}",
+      "afterInstall": "packaging/rpm/after-install.sh",
+      "afterRemove": "packaging/rpm/after-remove.sh"
+    },
+    "files": [
+      "apps/main/dist/**/*",
+      "apps/api/dist/**/*",
+      "apps/frontend/dist/**/*",
+      "configs/**/*",
+      "deploy/compose/docker-compose.yml",
+      "deploy/compose/docker-compose.vllm.yml",
+      "deploy/compose/docker-compose.pytorch.yml",
+      "deploy/templates/vllm.yml",
+      "deploy/templates/tensorrt-llm.yml",
+      "deploy/templates/pytorch.yml",
+      "deploy/templates/pytorch.Dockerfile",
+      "deploy/templates/pytorch_env.py",
+      "deploy/templates/pytorch_asr.py",
+      "deploy/dockerfiles/hf-tools.Dockerfile",
+      "deploy/dockerfiles/ms-tools.Dockerfile",
+      "ops/scripts/check-trtllm-endpoint.sh",
+      "ops/scripts/check_models_progress.py",
+      "ops/scripts/download-known-models.sh",
+      "ops/scripts/download-requested-models-ms.sh",
+      "ops/scripts/hf-download.sh",
+      "ops/scripts/model_download.sh",
+      "ops/scripts/modelscope-direct-download.py",
+      "ops/scripts/ms-download.sh",
+      "ops/scripts/start-trtllm-handle.sh",
+      "ops/scripts/start-trtllm-model.sh",
+      "ops/scripts/stop-trtllm-model.sh",
+      "ops/scripts/trtllm-env.sh"
+    ],
+    "extraResources": [
+      {
+        "from": "apps/api/node_modules",
+        "to": "app.asar.unpacked/apps/api/node_modules"
+      },
+      {
+        "from": "packaging/rpm",
+        "to": "server",
+        "filter": ["amuin-ai-stack-server", "amuin-ai-stack.service"]
+      }
+    ],
+    "asarUnpack": [
+      "apps/api/dist/**/*",
+      "apps/frontend/dist/**/*",
+      "configs/**/*",
+      "deploy/**/*",
+      "ops/scripts/**/*"
+    ]
+  },
+  "description": "AMUIN AI STACK desktop workbench for local DGX Spark AI runtimes",
+  "author": "AMUIN",
+  "homepage": "https://amuin.ai"
+}

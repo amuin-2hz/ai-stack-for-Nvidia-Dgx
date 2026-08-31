@@ -1,0 +1,47 @@
+services:
+  vllm-worker:
+    image: vllm/vllm-openai:latest
+    container_name: vllm_qwen3.8_27b_nvfp4
+    restart: "always"
+    ports:
+      - "50003:8000"
+    volumes:
+      - /home/zhenz/ai-stack/models/qwen3.8-27b-nvfp4:/models/qwen3.8-27b-nvfp4:ro
+      - /home/zhenz/ai-stack/cache/hf:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    command:
+      - --model
+      - /models/qwen3.8-27b-nvfp4
+      - --served-model-name
+      - qwen3.8-27b-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "40960"
+      - --gpu-memory-utilization
+      - "0.3"
+      - --max-num-seqs
+      - "4"
+      - --kv-cache-dtype
+      - auto
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ipc: host
+    networks:
+      - default

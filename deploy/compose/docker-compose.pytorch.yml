@@ -1,0 +1,21 @@
+services:
+  pytorch-service:
+    build:
+      context: ../templates
+      dockerfile: pytorch.Dockerfile
+      args:
+        PYTORCH_BASE_IMAGE: ${PYTORCH_IMAGE:-nvcr.io/nvidia/pytorch:25.04-py3}
+    image: local/ai-stack-pytorch:latest
+    container_name: pytorch-service
+    gpus: all
+    ipc: host
+    ports:
+      - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${PYTORCH_PUBLIC_PORT:-32000}:9000"
+    restart: ${AI_STACK_RESTART_POLICY:-unless-stopped}
+    volumes:
+      - ${MODELS_ROOT:-../../models}:/models:ro
+      - ../../cache:/cache
+    environment:
+      - MODELS_ROOT=/models
+      - CACHE_ROOT=/cache
+      - NVIDIA_VISIBLE_DEVICES=${GPU_VISIBLE_DEVICES:-all}

@@ -1,0 +1,76 @@
+# ===== 模型文件 (大文件，不推送) =====
+models/
+engines/
+.whisper-cache/
+
+# ===== 缓存 =====
+cache/
+
+# ===== 日志 =====
+logs/
+
+# ===== 临时文件 =====
+tmp/
+playbooks/
+
+# ===== Docker 运行时数据 =====
+volumes/
+
+# ===== 运行时状态 =====
+state/
+
+# ===== 构建产物 =====
+dist/
+!apps/main/dist/
+node_modules/
+.next/
+dist-electron/
+dist-release/
+THIRD_PARTY_NOTICES.md
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.model-download-venv/
+
+# ===== 个人笔记 =====
+.obsidian/
+
+# ===== 环境变量（敏感信息） =====
+.env
+.env.local
+.env.*.local
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# ===== 归档文件 =====
+*.zip
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db
+.cache/
+.npm-cache/
+.build-tools/
+*.tsbuildinfo
+*.orig
+
+# Development process documentation is kept out of public release repositories.
+/docs/
+/.docs/
+
+# Generated acceptance and development-process artifacts.
+/artifacts/
+/autoresearch/

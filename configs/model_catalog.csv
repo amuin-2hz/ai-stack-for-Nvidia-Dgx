@@ -1,0 +1,8 @@
+alias,requested_name,repo_id,status,role,residency,notes
+qwen35-0p8b,Qwen3.5-0.8B,Qwen/Qwen3.5-0.8B,known,text,ondemand,"Verified reachable on ModelScope; already downloaded successfully."
+qwen3-embedding-8b,Qwen3-Embedding-8B,Qwen/Qwen3-Embedding-8B,known,embedding,ondemand,"Verified reachable on ModelScope. Best fit for RAG embedding service."
+qwen3-vl-32b,Qwen3-VL-32B,Qwen/Qwen3-VL-32B-Instruct,known,vl,ondemand,"Resolved to the usable Hugging Face repo id for inference."
+qwen36-35b-a3b,Qwen3.6-35B-A3B,Qwen/Qwen3.6-35B-A3B,known,text_moe,resident_candidate,"Verified reachable on ModelScope. TRT-LLM support still needs later validation."
+omnicoder-9b,OmniCoder-9B,Tesslate/OmniCoder-9B,known,code,ondemand,"Resolved to the usable Hugging Face repo id."
+qwen35-9b,Qwen3.5-9B,Qwen/Qwen3.5-9B,known,text,resident_candidate,"Verified reachable on ModelScope; preferred resident candidate over the larger MoE."
+qwen3-30b-a3b,Qwen3-30B-A3B,Qwen/Qwen3-30B-A3B-Instruct,known,alt_text_moe,ondemand,"Official fallback if Qwen3.6-35B-A3B later proves awkward in TRT-LLM."

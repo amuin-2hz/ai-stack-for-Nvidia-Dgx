@@ -1,0 +1,14 @@
+# TensorRT-LLM 容器模板 — 高性能 LLM 推理
+services:
+  trtllm-worker:
+    image: ${TRTLLM_IMAGE:-nvcr.io/nvidia/tritonserver:25.04-trtllm-python-py3}
+    container_name: trtllm-service
+    gpus: all
+    ipc: host
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${TRTLLM_PORT:-31000}:8000"
+    restart: ${RESTART_POLICY:-no}
+    volumes:
+      - ${MODELS_ROOT:-../../models}:/models:ro
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}

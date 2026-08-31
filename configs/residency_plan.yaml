@@ -1,0 +1,38 @@
+resident_candidates:
+  primary:
+    - name: Qwen3.5-9B
+      catalog_alias: qwen35-9b
+      status: ready
+      notes: "Local model directory is present and startup script is prepared."
+    - name: Qwen3.6-35B-A3B
+      catalog_alias: qwen36-35b-a3b
+      status: ready_with_caution
+      notes: "Local model directory is present, but TRT-LLM compatibility still needs runtime validation."
+  fallbacks:
+    - name: Qwen3-14B-FP4
+      repo_id: nvidia/Qwen3-14B-FP4
+      status: ready_validated
+      notes: "Officially listed in DGX Spark TRT-LLM playbook and wired into the validated handle startup script."
+    - name: Qwen3-8B-FP4
+      repo_id: nvidia/Qwen3-8B-FP4
+      status: ready_validated
+      notes: "Lower resident footprint and fastest path to a validated always-on service."
+
+ondemand_models:
+  - name: Qwen3.5-0.8B
+    catalog_alias: qwen35-0p8b
+    status: ready
+  - name: Qwen3-Embedding-8B
+    catalog_alias: qwen3-embedding-8b
+    status: ready_downloaded
+  - name: Qwen3-VL-32B
+    catalog_alias: qwen3-vl-32b
+    status: downloading
+  - name: OmniCoder-9B
+    catalog_alias: omnicoder-9b
+    status: downloading
+
+serving_notes:
+  - "Keep exactly one resident text model active by default."
+  - "Only wake a second service when embedding or multimodal traffic is needed."
+  - "Treat large multimodal or MoE models as exclusive workloads on single-node Spark."

@@ -1,0 +1,51 @@
+#
+# vLLM service template for AMUIN AI STACK.
+# Start it with explicit environment, for example:
+#
+#   MODEL_ALIAS=qwen35-9b OPENAI_MODEL=qwen35-9b \
+#   VLLM_IMAGE=vllm/vllm-openai:latest docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.vllm.yml up vllm-worker
+#
+# The public service-type port is 30000. Individual model workers should stay
+# behind the Docker network or localhost-only routing in later iterations.
+#
+services:
+  vllm-worker:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:latest}
+    container_name: vllm-service
+    gpus: all
+    ipc: host
+    networks:
+      - default
+    ports:
+      - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${VLLM_PUBLIC_PORT:-30000}:8000"
+    restart: ${AI_STACK_RESTART_POLICY:-no}
+    volumes:
+      - ${MODELS_ROOT:-../../models}/${MODEL_ALIAS:-local_model}:/models/${MODEL_ALIAS:-local_model}:ro
+      - ../../cache/hf:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    # Auto tool choice is disabled by default. Managed deployments append
+    # validated --enable-auto-tool-choice/--tool-call-parser and optional
+    # --reasoning-parser flags instead of applying one parser to every model.
+    command:
+      - --model
+      - /models/${MODEL_ALIAS:-local_model}
+      - --served-model-name
+      - ${OPENAI_MODEL:-local_model}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - ${VLLM_TENSOR_PARALLEL_SIZE:-1}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-4096}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.15}
+      - --max-num-seqs
+      - ${VLLM_MAX_NUM_SEQS:-16}
+      - --kv-cache-dtype
+      - ${VLLM_KV_CACHE_DTYPE:-auto}
