@@ -10,7 +10,7 @@ x-ai-stack:
     primary_endpoint:
       kind: transcription
       method: POST
-      path: /transcription/transcribe
+      path: /v1/audio/transcriptions
     components:
       - model_id: sensevoicesmall
         role: asr

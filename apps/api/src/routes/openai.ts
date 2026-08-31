@@ -4,6 +4,7 @@ import {
   deploymentEndpointPath,
   directDeploymentUrl
 } from "../deploymentEndpoints.js";
+import { proxyAudioMultipart } from "../audioProxy.js";
 
 export function register(
   route: (method: string, path: string, handler: (...args: any[]) => Promise<void>) => void,
@@ -42,5 +43,10 @@ export function register(
 
   route("POST", "/v1/score", async (req: any, res: any) => {
     await oai.proxyOpenAiRequest(res, await readBody(req), "/score");
+  });
+
+  route("POST", "/v1/audio/transcriptions", async (req: any, res: any) => {
+    const audioServiceUrl = process.env.AUDIO_SERVICE_URL ?? "http://127.0.0.1:8011";
+    await proxyAudioMultipart(req, res, audioServiceUrl, "/v1/audio/transcriptions");
   });
 }

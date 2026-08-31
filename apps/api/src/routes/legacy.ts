@@ -12,6 +12,7 @@ import { listModels } from "../modelRegistry.js";
 import { getContainerConfig } from "../store.js";
 import { proxyHttp } from "../httpProxy.js";
 import { newId } from "../utils.js";
+import { audioServiceTargets, proxyAudioMultipart } from "../audioProxy.js";
 
 export function register(
   route: (method: string, path: string, handler: (...args: any[]) => Promise<void>) => void,
@@ -167,78 +168,10 @@ export function register(
   });
 
   route("POST", "/audio/transcriptions", async (req: any, res: any) => {
-    await proxyAudioMultipart(req, res, audioServiceUrl, "/transcription/transcribe");
+    await proxyAudioMultipart(req, res, audioServiceUrl, "/transcription/transcribe", false);
   });
 
   route("POST", "/audio/speaker-verifications", async (req: any, res: any) => {
-    await proxyAudioMultipart(req, res, audioServiceUrl, "/v1/audio/speaker-verifications");
+    await proxyAudioMultipart(req, res, audioServiceUrl, "/v1/audio/speaker-verifications", false);
   });
-}
-
-async function proxyAudioMultipart(
-  req: any,
-  res: any,
-  configuredUrl: string,
-  upstreamPath: string
-): Promise<void> {
-  let body: Buffer;
-  try {
-    body = await readRawBody(req, 100 * 1024 * 1024);
-  } catch (error) {
-    sendJson(res, 413, {
-      detail: error instanceof Error ? error.message : "Audio upload is too large."
-    });
-    return;
-  }
-
-  const contentType = String(req.headers["content-type"] ?? "");
-  if (!contentType.includes("multipart/form-data")) {
-    sendJson(res, 415, { detail: "multipart/form-data with audio files is required." });
-    return;
-  }
-
-  const failures: Array<{ target: string; detail: string }> = [];
-  for (const target of audioServiceTargets(configuredUrl)) {
-    const result = await proxyHttp(
-      "POST",
-      target + upstreamPath,
-      body,
-      {
-        "content-type": contentType,
-        "content-length": String(body.length)
-      }
-    );
-    if (result.ok || result.status !== 502) {
-      res.writeHead(result.status, {
-        "content-type": result.contentType || "application/json; charset=utf-8",
-        "access-control-allow-origin": "*"
-      });
-      res.end(result.body);
-      return;
-    }
-    failures.push({ target, detail: result.body || "Audio service unavailable" });
-  }
-  sendJson(res, 502, {
-    detail: "FunASR Gateway unavailable. Start the audio runtime before testing.",
-    failures
-  });
-}
-
-async function readRawBody(req: any, limit: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.from(chunk);
-    size += buffer.length;
-    if (size > limit) throw new Error("Audio upload exceeds the 100 MB limit.");
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-function audioServiceTargets(configuredUrl: string): string[] {
-  const fallback = process.env.FUNASR_GATEWAY_SERVICE_URL
-    ?? process.env.AUDIO_SERVICE_URL
-    ?? "http://127.0.0.1:" + (process.env.FUNASR_PUBLIC_PORT ?? "8011");
-  return [...new Set([configuredUrl, fallback].map((url) => url.replace(/\/$/, "")))];
 }

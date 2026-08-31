@@ -42,7 +42,7 @@ export function deploymentEndpointPath(
   if (kind === "document") return "/v1/documents/parse";
   if (kind === "ground") return "/v1/ground";
   if (kind === "speech") return "/v1/audio/speech";
-  if (kind === "transcription") return "/transcription/transcribe";
+  if (kind === "transcription") return "/v1/audio/transcriptions";
   return "/v1/chat/completions";
 }
 

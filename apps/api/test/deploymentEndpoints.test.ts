@@ -31,7 +31,7 @@ test("deployment endpoint catalog maps model runtimes to their real APIs", () =>
     [deployment("vllm-reranker", "qwen3-reranker-8b", 33042), "rerank", "/v1/score"],
     [deployment("locate-anything", "locateanything-3b", 33043), "ground", "/v1/ground"],
     [deployment("qwen3-tts", "qwen3-tts-12hz-1.7b-customvoice", 18020), "speech", "/v1/audio/speech"],
-    [deployment("funasr-gateway", "sensevoicesmall", 8011), "transcription", "/transcription/transcribe"],
+    [deployment("funasr-gateway", "sensevoicesmall", 8011), "transcription", "/v1/audio/transcriptions"],
     [deployment("vllm", "omnicoder-9b", 33050), "chat", "/v1/chat/completions"]
   ] as const;
 

@@ -1,9 +1,10 @@
-"""FunASR gateway matching the NVIDIA speech deployment acceptance API."""
+"""OpenAI-compatible FunASR gateway with legacy AI Stack route aliases."""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -15,8 +16,9 @@ from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-app = FastAPI(title="AI Stack FunASR Gateway", version="0.1.0")
+app = FastAPI(title="AI Stack FunASR Gateway", version="0.2.0")
 logger = logging.getLogger("ai_stack_funasr_gateway")
 _asr_state: dict[str, Any] = {"key": None, "engine": None, "model": None}
 _diarization_state: dict[str, Any] = {"id": None, "model": None, "backend": None}
@@ -46,6 +48,7 @@ ASR_PRESETS = {
         "lm": "none",
         "punctuation": False,
         "diarization": False,
+        "prompt_hotwords": False,
     },
     "accurate-zh": {
         "label": "高准确率中文转写",
@@ -54,14 +57,16 @@ ASR_PRESETS = {
         "lm": "ngram-fst",
         "punctuation": True,
         "diarization": False,
+        "prompt_hotwords": False,
     },
     "domain-zh": {
         "label": "固定领域转写",
-        "description": "VAD + Paraformer + N-gram-FST + PUNC",
+        "description": "VAD + Paraformer + N-gram-FST + PUNC + request hotwords",
         "engine": "paraformer",
         "lm": "ngram-fst",
         "punctuation": True,
         "diarization": False,
+        "prompt_hotwords": True,
     },
     "meeting": {
         "label": "会议转写",
@@ -70,6 +75,7 @@ ASR_PRESETS = {
         "lm": "none",
         "punctuation": True,
         "diarization": True,
+        "prompt_hotwords": False,
     },
 }
 
@@ -147,6 +153,7 @@ def _pipeline_configuration(
         "effectiveLm": effective_lm,
         "punctuation": engine == "paraformer" and bool(preset["punctuation"]),
         "diarization": include_diarization,
+        "promptHotwords": execution == "runtime-sdk" and bool(preset["prompt_hotwords"]),
         "available": available,
         "warnings": warnings,
     }
@@ -154,6 +161,61 @@ def _pipeline_configuration(
 
 def _pipeline_catalog() -> list[dict[str, Any]]:
     return [_pipeline_configuration(preset_name) for preset_name in ASR_PRESETS]
+
+
+def _resolve_pipeline(
+    model: str | None,
+    preset_name: str | None,
+    engine_override: str | None,
+    diarization_override: bool | None,
+) -> dict[str, Any]:
+    """Resolve request routing with model > preset > engine precedence."""
+    requested_model = str(model or "").strip()
+    requested_preset = str(preset_name or "").strip().lower()
+    requested_engine = str(engine_override or "").strip()
+    selected_preset = requested_preset or "general"
+    selected_engine: str | None = requested_engine or None
+    routing_warnings: list[str] = []
+
+    if requested_model:
+        model_key = requested_model.lower()
+        if model_key.startswith("pipeline:"):
+            model_preset = model_key.split(":", 1)[1]
+            if model_preset not in ASR_PRESETS:
+                raise HTTPException(status_code=400, detail=f"Unknown transcription model: {requested_model}")
+            if requested_preset and requested_preset != model_preset:
+                routing_warnings.append(f"preset={requested_preset} was ignored because model={requested_model} has priority.")
+            if requested_engine:
+                routing_warnings.append(f"asr_engine={requested_engine} was ignored because model={requested_model} has priority.")
+            selected_preset = model_preset
+            selected_engine = None
+        elif model_key in ASR_PRESETS:
+            if requested_preset and requested_preset != model_key:
+                routing_warnings.append(f"preset={requested_preset} was ignored because model={requested_model} has priority.")
+            if requested_engine:
+                routing_warnings.append(f"asr_engine={requested_engine} was ignored because model={requested_model} has priority.")
+            selected_preset = model_key
+            selected_engine = None
+        else:
+            leaf = model_key.rsplit("/", 1)[-1]
+            if "sensevoice" in leaf:
+                model_engine, default_preset = "sensevoice", "general"
+            elif "paraformer" in leaf:
+                model_engine, default_preset = "paraformer", "accurate-zh"
+            else:
+                model_engine = ""
+                default_preset = ""
+            if not model_engine:
+                raise HTTPException(status_code=400, detail=f"Unknown transcription model: {requested_model}")
+            if requested_engine and _normalize_engine(requested_engine) != model_engine:
+                routing_warnings.append(f"asr_engine={requested_engine} was ignored because model={requested_model} has priority.")
+            selected_preset = requested_preset or default_preset
+            selected_engine = model_engine
+
+    pipeline = _pipeline_configuration(selected_preset, selected_engine, diarization_override)
+    pipeline["model"] = f"pipeline:{pipeline['id']}"
+    pipeline["warnings"] = [*routing_warnings, *pipeline["warnings"]]
+    return pipeline
 
 
 def _runtime_service_available(url: str) -> bool:
@@ -276,8 +338,24 @@ def list_models() -> dict[str, Any]:
     return {"object": "list", "data": engines + presets}
 
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+def healthz() -> dict[str, Any]:
+    pipelines = _pipeline_catalog()
+    ready = [item["id"] for item in pipelines if item["available"]]
+    return {
+        "status": "ok",
+        "ready": bool(ready),
+        "readyPipelines": ready,
+        "pipelines": [
+            {"id": item["id"], "available": item["available"], "warnings": item["warnings"]}
+            for item in pipelines
+        ],
+    }
+
+
+@app.get("/readyz")
+def readyz() -> JSONResponse:
+    payload = healthz()
+    return JSONResponse(payload, status_code=200 if payload["ready"] else 503)
 
 
 @app.get("/debug/cuda-memory")
@@ -455,8 +533,13 @@ def _diarization_segments(result: Any, duration: float) -> list[dict[str, Any]]:
     return segments or [{"speakerLabel": "SPEAKER_00", "start": 0.0, "end": duration}]
 
 
-async def _runtime_sdk_transcribe(file_path: str) -> Any:
-    import json
+def _runtime_hotwords(prompt: str) -> str:
+    terms = [term.strip() for term in re.split(r"[,，、;；\n]+", prompt) if term.strip()]
+    # The runtime-SDK websocket protocol accepts a JSON-encoded word -> weight map.
+    return json.dumps({term: 20 for term in terms}, ensure_ascii=False) if terms else ""
+
+
+async def _runtime_sdk_transcribe(file_path: str, prompt: str = "") -> Any:
     import websockets
 
     runtime_url = os.environ.get("NGRAM_RUNTIME_URL", "").strip()
@@ -484,7 +567,7 @@ async def _runtime_sdk_transcribe(file_path: str) -> Any:
             "wav_name": source.stem or "audio",
             "wav_format": wav_format,
             "is_speaking": True,
-            "hotwords": "",
+            "hotwords": _runtime_hotwords(prompt),
             "itn": True,
         }, ensure_ascii=False))
         for offset in range(0, len(audio_bytes), chunk_bytes):
@@ -518,13 +601,14 @@ def _transcribe_path(
     language: str,
     speaker_count: str,
     pipeline: dict[str, Any],
+    prompt: str = "",
 ) -> dict[str, Any]:
     if not pipeline["available"]:
         detail = "; ".join(pipeline["warnings"]) or "Selected ASR pipeline is unavailable."
         raise HTTPException(status_code=503, detail=detail)
     duration = _duration_seconds(file_path)
     if pipeline["execution"] == "runtime-sdk":
-        asr_result = asyncio.run(_runtime_sdk_transcribe(file_path))
+        asr_result = asyncio.run(_runtime_sdk_transcribe(file_path, prompt if pipeline["promptHotwords"] else ""))
     else:
         with _asr_lock:
             asr = _load_asr_model(pipeline)
@@ -541,6 +625,7 @@ def _transcribe_path(
     if not pipeline["diarization"]:
         return {
             "text": "".join(item.get("text", "") for item in asr_segments).strip(),
+            "duration": duration,
             "pipeline": pipeline,
             "asrSegments": asr_segments,
             "diarizationSegments": [],
@@ -561,6 +646,7 @@ def _transcribe_path(
         diarization_segments = [{"speakerLabel": "SPEAKER_00", "start": 0.0, "end": duration, "error": str(error)}]
     return {
         "text": "".join(item.get("text", "") for item in asr_segments).strip(),
+        "duration": duration,
         "pipeline": pipeline,
         "asrSegments": asr_segments,
         "diarizationSegments": diarization_segments,
@@ -582,26 +668,31 @@ def _transcript_text(result: dict[str, Any]) -> str:
     return "".join(str(item.get("text", "")) for item in result.get("asrSegments", [])).strip()
 
 
-@app.post("/transcription/transcribe")
-async def transcribe(
-    file: UploadFile = File(...),
-    language: str = Form(default="auto"),
-    speakerCount: str = Form(default="auto"),
-    preset: str = Form(default="general"),
-    asrEngine: str = Form(default=""),
-    diarization: bool | None = Form(default=None),
+async def _transcribe_upload(
+    file: UploadFile,
+    language: str,
+    speaker_count: str,
+    pipeline: dict[str, Any],
+    prompt: str = "",
 ) -> dict[str, Any]:
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
-    pipeline = _pipeline_configuration(preset, asrEngine or None, diarization)
+    request_warning = ""
+    if pipeline["id"] == "domain-zh" and not prompt.strip():
+        request_warning = "domain-zh received no prompt; decoding continues with only the mounted N-gram model."
+    elif prompt.strip() and not pipeline["promptHotwords"]:
+        request_warning = "The selected pipeline does not support prompt hotwords; prompt was ignored."
+    if request_warning:
+        pipeline["warnings"].append(request_warning)
+        logger.warning("ASR request degraded pipeline=%s warning=%s", pipeline["id"], request_warning)
     suffix = Path(file.filename or "audio.wav").suffix or ".wav"
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
             handle.write(payload)
             temp_path = handle.name
-        return await asyncio.to_thread(_transcribe_path, temp_path, language, speakerCount, pipeline)
+        return await asyncio.to_thread(_transcribe_path, temp_path, language, speaker_count, pipeline, prompt)
     except HTTPException:
         raise
     except Exception as error:
@@ -610,6 +701,114 @@ async def transcribe(
     finally:
         if temp_path:
             Path(temp_path).unlink(missing_ok=True)
+
+
+def _timestamp(value: float, decimal: str = ",") -> str:
+    milliseconds = max(0, round(float(value) * 1000))
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    seconds, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}{decimal}{millis:03d}"
+
+
+def _subtitle(result: dict[str, Any], response_format: str) -> str:
+    blocks: list[str] = []
+    if response_format == "vtt":
+        blocks.append("WEBVTT\n")
+    for index, segment in enumerate(result.get("asrSegments", []), start=1):
+        start = _timestamp(segment.get("start", 0), "." if response_format == "vtt" else ",")
+        end = _timestamp(segment.get("end", 0), "." if response_format == "vtt" else ",")
+        prefix = "" if response_format == "vtt" else f"{index}\n"
+        blocks.append(f"{prefix}{start} --> {end}\n{segment.get('text', '')}\n")
+    return "\n".join(blocks).rstrip() + "\n"
+
+
+def _verbose_json(result: dict[str, Any], language: str, granularities: list[str]) -> dict[str, Any]:
+    segments = [
+        {
+            "id": index,
+            "seek": 0,
+            "start": float(item.get("start", 0)),
+            "end": float(item.get("end", 0)),
+            "text": str(item.get("text", "")),
+            "tokens": [],
+            "temperature": 0.0,
+            "avg_logprob": 0.0,
+            "compression_ratio": 0.0,
+            "no_speech_prob": 0.0,
+        }
+        for index, item in enumerate(result.get("asrSegments", []))
+    ]
+    response: dict[str, Any] = {
+        "task": "transcribe",
+        "language": language,
+        "duration": float(result.get("duration", 0)),
+        "text": result.get("text", ""),
+        "segments": segments,
+    }
+    if "word" in granularities:
+        # FunASR may not return token/text alignment; an empty list is safer than fabricated words.
+        response["words"] = []
+    return response
+
+
+def _openai_response(result: dict[str, Any], response_format: str, language: str, granularities: list[str]) -> Any:
+    if response_format == "text":
+        return PlainTextResponse(str(result.get("text", "")))
+    if response_format == "srt":
+        return PlainTextResponse(_subtitle(result, response_format), media_type="application/x-subrip")
+    if response_format == "vtt":
+        return PlainTextResponse(_subtitle(result, response_format), media_type="text/vtt")
+    if response_format == "verbose_json":
+        return JSONResponse(_verbose_json(result, language, granularities))
+    if response_format == "json":
+        return JSONResponse({"text": result.get("text", "")})
+    raise HTTPException(status_code=400, detail=f"Unsupported response_format: {response_format}")
+
+
+@app.post("/transcription/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    language: str = Form(default="auto"),
+    speakerCount: str = Form(default="auto"),
+    preset: str = Form(default="general"),
+    asrEngine: str = Form(default=""),
+    speaker_count: str = Form(default=""),
+    asr_engine: str = Form(default=""),
+    prompt: str = Form(default=""),
+    diarization: bool | None = Form(default=None),
+) -> dict[str, Any]:
+    pipeline = _resolve_pipeline(None, preset, asr_engine or asrEngine or None, diarization)
+    return await _transcribe_upload(file, language, speaker_count or speakerCount, pipeline, prompt)
+
+
+@app.post("/v1/audio/transcriptions")
+async def openai_transcribe(
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    language: str = Form(default="auto"),
+    prompt: str = Form(default=""),
+    response_format: str = Form(default="json"),
+    temperature: float = Form(default=0.0),
+    timestamp_granularities: list[str] | None = Form(default=None),
+    timestamp_granularities_bracket: list[str] | None = Form(default=None, alias="timestamp_granularities[]"),
+    timestampGranularities: list[str] | None = Form(default=None),
+    preset: str = Form(default=""),
+    asr_engine: str = Form(default=""),
+    asrEngine: str = Form(default=""),
+    speaker_count: str = Form(default=""),
+    speakerCount: str = Form(default="auto"),
+    diarization: bool | None = Form(default=None),
+) -> Any:
+    if temperature < 0:
+        raise HTTPException(status_code=400, detail="temperature must be greater than or equal to 0.")
+    granularities = timestamp_granularities_bracket or timestamp_granularities or timestampGranularities or ["segment"]
+    invalid_granularities = sorted(set(granularities) - {"segment", "word"})
+    if invalid_granularities:
+        raise HTTPException(status_code=400, detail=f"Unsupported timestamp_granularities: {', '.join(invalid_granularities)}")
+    pipeline = _resolve_pipeline(model, preset or None, asr_engine or asrEngine or None, diarization)
+    result = await _transcribe_upload(file, language, speaker_count or speakerCount, pipeline, prompt)
+    return _openai_response(result, response_format.strip().lower(), language, granularities)
 
 
 @app.websocket("/v1/realtime")
