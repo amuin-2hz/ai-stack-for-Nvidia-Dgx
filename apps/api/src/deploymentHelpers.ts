@@ -112,8 +112,10 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     const active = listActiveDeployments();
     const liveByContainer = new Map<string, ActiveDeploymentRecord>();
     for (const deployment of active) {
-      const persistedArgs = (deployment as ActiveDeploymentRecord & { args?: Record<string, unknown> }).args;
-      const recoveredArgs = persistedArgs ?? (deployment.service_type === "vllm" ? await deploymentArgsForContainer(deployment.container_name) : undefined);
+      const runtimeArgs = deployment.service_type === "vllm"
+        ? await deploymentArgsForContainer(deployment.container_name)
+        : undefined;
+      const recoveredArgs = mergeDeploymentRuntimeArgs(deployment.args, runtimeArgs);
       const baseDeployment = normalizeDeployment({ ...deployment, args: recoveredArgs });
       const normalized = { ...baseDeployment, suite: baseDeployment.suite ?? await deploymentSuiteForTask(baseDeployment.task_id) };
       if (!(await deploymentContainerIsRunning(normalized.container_name))) {
@@ -400,6 +402,15 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     runtimeHealthUrl,
     runtimeOpenAiBaseUrl
   };
+}
+
+export function mergeDeploymentRuntimeArgs(
+  persistedArgs: Record<string, unknown> | undefined,
+  runtimeArgs: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!persistedArgs) return runtimeArgs;
+  if (!runtimeArgs) return persistedArgs;
+  return { ...persistedArgs, ...runtimeArgs };
 }
 
 export function runtimeArgsFromVllmCommand(args: string[]): Record<string, unknown> | undefined {

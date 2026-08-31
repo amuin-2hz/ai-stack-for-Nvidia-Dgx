@@ -282,6 +282,34 @@ const latestSuccessfulDeploymentPreset = computed(() => {
   ) ?? null;
 });
 
+const runningDeploymentPreset = computed(() => {
+  const modelId = publishActiveModel.value?.id;
+  const runtime = selectedContainer.value?.runtime;
+  if (!modelId || !runtime) return null;
+  return runningDeployments.value.find((deployment) =>
+    deployment.model_id === modelId
+    && deployment.service_type === runtime
+    && deployment.status === 'running'
+    && deployment.args
+  ) ?? null;
+});
+
+const deploymentParameterPreset = computed(() => {
+  const active = runningDeploymentPreset.value;
+  if (active?.args) return {
+    key: 'deployment:' + active.deployment_id + ':' + JSON.stringify(active.args),
+    args: active.args,
+    source: 'running' as const
+  };
+  const task = latestSuccessfulDeploymentPreset.value;
+  if (task?.metadata?.args) return {
+    key: 'task:' + task.id + ':' + JSON.stringify(task.metadata.args),
+    args: task.metadata.args as Record<string, unknown>,
+    source: 'task' as const
+  };
+  return null;
+});
+
 export const publishParameterSummary = computed(() => {
   const runtime = selectedContainer.value?.runtime;
   if (runtime === 'vllm') {
@@ -307,25 +335,25 @@ export const publishParameterSummary = computed(() => {
   return '';
 });
 
-export const publishParameterSourceLabel = computed(() => latestSuccessfulDeploymentPreset.value
-  ? (locale.value === 'zh-CN' ? '已恢复该模型上次成功配置' : 'Restored this model\'s last successful configuration')
-  : (locale.value === 'zh-CN' ? '首次发布使用基础值，修改后会随成功记录保留' : 'First publish uses baseline values; successful settings are retained'));
+export const publishParameterSourceLabel = computed(() => deploymentParameterPreset.value?.source === 'running'
+  ? (locale.value === 'zh-CN' ? '已恢复当前运行实例配置' : 'Restored the active runtime configuration')
+  : deploymentParameterPreset.value?.source === 'task'
+    ? (locale.value === 'zh-CN' ? '已恢复该模型上次成功配置' : 'Restored the last successful model configuration')
+    : (locale.value === 'zh-CN' ? '首次发布使用基础值，修改后会随成功记录保留' : 'First publish uses baseline values; successful settings are retained'));
 
 let restoredDeploymentPresetKey = '';
 watch(
   [
     () => publishActiveModel.value?.id ?? '',
     () => selectedContainer.value?.runtime ?? '',
-    () => latestSuccessfulDeploymentPreset.value?.id ?? ''
+    () => deploymentParameterPreset.value?.key ?? ''
   ],
-  ([modelId, runtime, taskId]) => {
+  ([modelId, runtime, presetKey]) => {
     if (!modelId || !runtime) return;
-    const restoreKey = modelId + ':' + runtime + ':' + taskId;
+    const restoreKey = modelId + ':' + runtime + ':' + presetKey;
     if (restoreKey === restoredDeploymentPresetKey) return;
     restoredDeploymentPresetKey = restoreKey;
-    if (latestSuccessfulDeploymentPreset.value?.metadata?.args) {
-      applyDeploymentArgs(latestSuccessfulDeploymentPreset.value.metadata.args as Record<string, unknown>);
-    }
+    if (deploymentParameterPreset.value?.args) applyDeploymentArgs(deploymentParameterPreset.value.args);
   },
   { immediate: true }
 );
