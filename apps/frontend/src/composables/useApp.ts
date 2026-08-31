@@ -4,7 +4,7 @@
  * @description 全局状态管理 & 共享逻辑 — 模块级 ref 单例，所有页面/组件共享同一实例。
  *              Global state & shared logic — module-level ref singleton shared across all pages/components.
  */
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import type {
   Locale, ThemeMode, View, ServiceType, ModelRecord, DeploymentRecord, TaskRecord,
@@ -21,6 +21,8 @@ export const sidebarCollapsed = ref(false);
 export const rightPanelCollapsed = ref(false);
 
 export const models = ref<ModelRecord[]>([]);
+export const modelCatalogLoading = ref(true);
+let latestModelCatalogRequest = 0;
 export const deployments = ref<DeploymentRecord[]>([]);
 export const tasks = ref<TaskRecord[]>([]);
 export const containers = ref<ContainerRecord[]>([]);
@@ -59,10 +61,14 @@ export const modelListDrawerOpen = ref(false);
 
 export const deployOpenAiModel = ref('');
 export const deployContextLength = ref(4096);
-export const deployGpuUtil = ref(20);
-export const deployMaxSeqs = ref(16);
+export const deployGpuUtil = ref(30);
+export const deployMaxSeqs = ref(4);
 export const deployTensorParallel = ref(1);
+export const deployGpuDeviceIds = ref<string[]>(readStoredGpuDeviceIds());
 export const deployKvCacheDtype = ref('auto');
+export const deployEnableAutoToolChoice = ref(false);
+export const deployToolCallParser = ref('auto');
+export const deployReasoningParser = ref('auto');
 export const deploySwapSpace = ref(4);
 export const trtMaxBatchSize = ref(8);
 export const trtMaxNumTokens = ref(4096);
@@ -264,8 +270,61 @@ export const backendOrigin = computed(() => {
 });
 export const backendOpenAiBaseUrl = computed(() => backendOrigin.value + '/v1');
 const gpuCount = computed(() => Math.max(1, system.value?.device?.gpu?.devices?.length ?? 1));
+export const gpuDeviceOptions = computed(() => (system.value?.device?.gpu?.devices ?? []).map((device, fallbackIndex) => {
+  const index = Number.isInteger(Number(device.index)) ? Number(device.index) : fallbackIndex;
+  const id = String(device.uuid || index);
+  const totalMiB = device.memory_total_mib !== null && device.memory_total_mib !== undefined ? Number(device.memory_total_mib) : NaN;
+  const usedMiB = device.memory_used_mib !== null && device.memory_used_mib !== undefined ? Number(device.memory_used_mib) : NaN;
+  const freeMiB = device.memory_free_mib !== null && device.memory_free_mib !== undefined && Number.isFinite(Number(device.memory_free_mib))
+    ? Number(device.memory_free_mib)
+    : Number.isFinite(totalMiB) && Number.isFinite(usedMiB) ? Math.max(0, totalMiB - usedMiB) : null;
+  return {
+    value: id,
+    index,
+    uuid: String(device.uuid || ''),
+    name: String(device.name || 'NVIDIA GPU'),
+    freeMiB,
+    totalMiB: Number.isFinite(totalMiB) ? totalMiB : null,
+    utilization: Number.isFinite(Number(device.utilization_gpu_percent)) ? Number(device.utilization_gpu_percent) : null
+  };
+}));
+export const selectedGpuCount = computed(() => Math.max(1, deployGpuDeviceIds.value.length));
 export const contextLimit = computed(() => selectedDeployModel.value?.inference?.context_length ?? { min: 512, max: 4096, default: 4096, step: 512, source: 'default' });
-export const tensorParallelLimit = computed(() => Math.max(1, Math.min(16, gpuCount.value)));
+export const tensorParallelLimit = computed(() => Math.max(1, Math.min(16, deployGpuDeviceIds.value.length || gpuCount.value)));
+const selectedDeployModelSearchText = computed(() => {
+  const model = selectedDeployModel.value;
+  return [
+    model?.id,
+    model?.display_name,
+    model?.local.architecture,
+    model?.runtime.preferred,
+    ...(model?.capabilities ?? [])
+  ].filter(Boolean).join(' ').toLowerCase();
+});
+export const recommendedToolCallParser = computed(() => {
+  const text = selectedDeployModelSearchText.value;
+  if (/qwen[-_ ]?3(?:[._-]?(?:5|6|8))?|qwen3[-_ ]?coder|omnicoder/.test(text)) return 'qwen3_coder';
+  return 'hermes';
+});
+export const recommendedReasoningParser = computed(() => /qwen/.test(selectedDeployModelSearchText.value) ? 'qwen3' : '');
+export const effectiveToolCallParser = computed(() => deployToolCallParser.value === 'auto'
+  ? recommendedToolCallParser.value
+  : deployToolCallParser.value);
+export const effectiveReasoningParser = computed(() => deployReasoningParser.value === 'auto'
+  ? recommendedReasoningParser.value
+  : deployReasoningParser.value);
+
+watch(gpuDeviceOptions, (options) => {
+  if (!options.length) return;
+  const available = new Set(options.map((option) => option.value));
+  const valid = deployGpuDeviceIds.value.filter((id) => available.has(id));
+  deployGpuDeviceIds.value = valid.length ? valid : [options[0].value];
+  syncGpuParallelism();
+}, { immediate: true });
+
+watch(deployGpuDeviceIds, (ids) => {
+  localStorage.setItem('deployGpuDeviceIds', JSON.stringify(ids));
+}, { deep: true });
 
 /* ── pure helpers ──────────────────────────────── */
 export function percent(used: number, total: number) { return total ? Math.round((used / total) * 100) : 0; }
@@ -640,7 +699,68 @@ export function canDeleteModel(model: ModelRecord): boolean {
 }
 
 export function deploymentArgs() {
-  return { max_model_len: deployContextLength.value, gpu_memory_utilization: deployGpuUtil.value / 100, max_num_seqs: deployMaxSeqs.value, tensor_parallel_size: deployTensorParallel.value, kv_cache_dtype: deployKvCacheDtype.value, max_batch_size: trtMaxBatchSize.value, max_num_tokens: trtMaxNumTokens.value, kv_cache_free_gpu_memory_fraction: trtKvCacheFraction.value, tp_size: trtTpSize.value, pp_size: trtPpSize.value };
+  return {
+    max_model_len: finiteNumber(deployContextLength.value, 4096),
+    gpu_memory_utilization: finiteNumber(deployGpuUtil.value, 30) / 100,
+    max_num_seqs: finiteNumber(deployMaxSeqs.value, 4),
+    tensor_parallel_size: finiteNumber(deployTensorParallel.value, 1),
+    kv_cache_dtype: deployKvCacheDtype.value || 'auto',
+    enable_auto_tool_choice: Boolean(deployEnableAutoToolChoice.value),
+    tool_call_parser: effectiveToolCallParser.value,
+    reasoning_parser: effectiveReasoningParser.value,
+    max_batch_size: finiteNumber(trtMaxBatchSize.value, 8),
+    max_num_tokens: finiteNumber(trtMaxNumTokens.value, 4096),
+    kv_cache_free_gpu_memory_fraction: finiteNumber(trtKvCacheFraction.value, 0.9),
+    tp_size: finiteNumber(trtTpSize.value, 1),
+    pp_size: finiteNumber(trtPpSize.value, 1),
+    ...(deployGpuDeviceIds.value.length ? { gpu_device_ids: [...deployGpuDeviceIds.value] } : {})
+  };
+}
+
+export function applyDeploymentArgs(args?: Record<string, unknown>) {
+  if (!args) return;
+  if (Array.isArray(args.gpu_device_ids)) deployGpuDeviceIds.value = args.gpu_device_ids.map(String);
+  deployContextLength.value = finiteNumber(args.max_model_len, deployContextLength.value);
+  const gpuUtilization = finiteNumber(args.gpu_memory_utilization, deployGpuUtil.value / 100);
+  deployGpuUtil.value = clamp(Math.round(gpuUtilization <= 1 ? gpuUtilization * 100 : gpuUtilization), 10, 99);
+  deployMaxSeqs.value = clamp(Math.round(finiteNumber(args.max_num_seqs, deployMaxSeqs.value)), 1, 256);
+  deployTensorParallel.value = Math.max(1, Math.round(finiteNumber(args.tensor_parallel_size, deployTensorParallel.value)));
+  deployKvCacheDtype.value = typeof args.kv_cache_dtype === 'string' ? args.kv_cache_dtype : deployKvCacheDtype.value;
+  if ('enable_auto_tool_choice' in args) {
+    deployEnableAutoToolChoice.value = args.enable_auto_tool_choice === true || args.enable_auto_tool_choice === 1 || args.enable_auto_tool_choice === 'true';
+  }
+  if (typeof args.tool_call_parser === 'string') deployToolCallParser.value = args.tool_call_parser || 'auto';
+  if (typeof args.reasoning_parser === 'string') deployReasoningParser.value = args.reasoning_parser;
+  trtMaxBatchSize.value = Math.max(1, Math.round(finiteNumber(args.max_batch_size, trtMaxBatchSize.value)));
+  trtMaxNumTokens.value = finiteNumber(args.max_num_tokens, trtMaxNumTokens.value);
+  trtKvCacheFraction.value = clamp(finiteNumber(args.kv_cache_free_gpu_memory_fraction, trtKvCacheFraction.value), 0.1, 0.99);
+  trtTpSize.value = Math.max(1, Math.round(finiteNumber(args.tp_size, trtTpSize.value)));
+  trtPpSize.value = Math.max(1, Math.round(finiteNumber(args.pp_size, trtPpSize.value)));
+  clampDeployParamsForModel();
+}
+
+export function syncGpuParallelism() {
+  if (!deployGpuDeviceIds.value.length && gpuDeviceOptions.value.length) {
+    deployGpuDeviceIds.value = [gpuDeviceOptions.value[0].value];
+  }
+  const count = Math.max(1, deployGpuDeviceIds.value.length);
+  deployTensorParallel.value = count;
+  trtTpSize.value = count;
+  trtPpSize.value = 1;
+}
+
+function readStoredGpuDeviceIds(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('deployGpuDeviceIds') || '[]');
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function compatibilityRows(model: ModelRecord) {
@@ -733,8 +853,18 @@ export function setLocale(next: Locale) { locale.value = next; localStorage.setI
 export function setTheme(next: ThemeMode) { themeMode.value = next; localStorage.setItem('themeMode', next); document.documentElement.dataset.theme = next; }
 
 /* ── API ───────────────────────────────────────── */
+export const adminToken = ref(localStorage.getItem('ai-stack-admin-token') ?? '');
+
+export function setAdminToken(value: string) {
+  adminToken.value = value.trim();
+  if (adminToken.value) localStorage.setItem('ai-stack-admin-token', adminToken.value);
+  else localStorage.removeItem('ai-stack-admin-token');
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch('/api' + path, options);
+  const headers = new Headers(options?.headers);
+  if (adminToken.value) headers.set('X-AI-Stack-Admin', adminToken.value);
+  const response = await fetch('/api' + path, { ...options, headers });
   const text = await response.text();
   let payload: unknown = {};
   try {
@@ -800,8 +930,19 @@ export async function copyText(value: string): Promise<boolean> {
 }
 
 export async function refresh() {
+  const modelCatalogRequest = ++latestModelCatalogRequest;
+  if (!models.value.length) modelCatalogLoading.value = true;
+  const modelRequest = api<{ models: ModelRecord[] }>('/models')
+    .catch(() => ({ models: [] }))
+    .then((payload) => {
+      models.value = payload.models ?? [];
+      return payload;
+    })
+    .finally(() => {
+      if (modelCatalogRequest === latestModelCatalogRequest) modelCatalogLoading.value = false;
+    });
   const [modelPayload, deploymentPayload, taskPayload, systemPayload, networkPayload, proxyPayload, workbenchPayload, containerPayload] = await Promise.all([
-    api<{ models: ModelRecord[] }>('/models').catch(() => ({ models: [] })),
+    modelRequest,
     api<{ deployments: DeploymentRecord[] }>('/deployments').catch(() => ({ deployments: [] })),
     api<{ tasks: TaskRecord[] }>('/tasks').catch(() => ({ tasks: [] })),
     api<SystemCheck>('/system/check').catch(() => emptySystemCheck()),

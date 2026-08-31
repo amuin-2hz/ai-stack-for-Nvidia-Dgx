@@ -5,18 +5,20 @@
                Load/Publish page: developer logs, API usage panel, workspace sidebar, and model selector.
 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { ArrowsAltOutlined, CopyOutlined, DeleteOutlined, MoreOutlined, PlusOutlined, ShrinkOutlined } from '@ant-design/icons-vue';
 import {
   locale, t, view, deployOpenAiModel, deployModelId,
-  logCollapsed, copyText, loadContainerLogs, actionTargetName, models, containers, runningDeployments,
+  logCollapsed, copyText, loadContainerLogs, actionTargetName, models, modelCatalogLoading, containers, runningDeployments,
   modelListSummaryUrl, selectedDeployment,
   modelEndpoint, publicBaseUrl, deploymentApiKind, inferenceEndpoint, inferenceEndpointLabel,
   statusText, badgeColor, runtimeHintColor, canDeployToSelected,
   deployContextLength, deployGpuUtil, deployMaxSeqs, deployTensorParallel, deployKvCacheDtype,
+  deployGpuDeviceIds, gpuDeviceOptions, selectedGpuCount, syncGpuParallelism,
+  deployEnableAutoToolChoice, deployToolCallParser, deployReasoningParser,
   trtMaxBatchSize, trtMaxNumTokens, trtKvCacheFraction, trtTpSize, trtPpSize,
   contextLimit, tensorParallelLimit, paramLimitText, shortModelPath, formatBytes, modelFormatLabel,
-  selectedContainer, selectedContainerKey, selectedDeployModel, rightPanelCollapsed
+  selectedContainer, selectedContainerKey, selectedDeployModel, rightPanelCollapsed, applyDeploymentArgs
 } from '../composables/useApp';
 import {
   publishPanelTab, publishConsoleLog, publishModelInfoRows,
@@ -25,8 +27,11 @@ import {
   publishRequiresAudioRuntime, publishAudioRuntimeDetail,
   publishRuntimeOptions, publishSelectedRuntime, publishRuntimeSelectionVisible,
   publishSelectedModeLabel, publishSelectedImpact, publishPrimaryActionLabel,
+  publishParameterSummary, publishParameterSourceLabel,
+  publishToolCallSettingsVisible, publishToolCallParserOptions, publishReasoningParserOptions,
   publishTaskFeedbackVisible, publishTaskFeedbackCards, publishTaskStatus,
   selectPublishRuntime, activateSelectedPublishRuntime,
+  applyModelMaxContext, applyBaselineDeploymentParameters,
   loadModelModalOpen, loadModelSearch, loadModelSort, loadModelCandidateList,
   selectModelFromModal, deploymentPlanPreview, deploymentPlanLoading,
   publishIsLoading,
@@ -41,11 +46,36 @@ const activeLoadedDeployment = computed(() =>
   || selectedDeployment.value
   || runningDeployments.value[0]
 );
+const loadModelEmptyDescription = computed(() => {
+  if (modelCatalogLoading.value) return locale.value === 'zh-CN' ? '正在扫描模型目录…' : 'Scanning the model directory…';
+  if (!models.value.length) {
+    return locale.value === 'zh-CN'
+      ? '模型目录为空：/home/zhenz/ai-stack/models'
+      : 'The model directory is empty: /home/zhenz/ai-stack/models';
+  }
+  if (loadModelSearch.value.trim()) {
+    return locale.value === 'zh-CN' ? '没有匹配的模型' : 'No matching models';
+  }
+  return locale.value === 'zh-CN'
+    ? '已发现模型，但没有完整且可发布的模型'
+    : 'Models were found, but none are complete and ready to publish';
+});
 
 onMounted(() => {
   logCollapsed.value = true;
   void loadCustomComposeProfiles();
 });
+
+function openRuntimeParameters() {
+  rightPanelCollapsed.value = false;
+  publishPanelTab.value = 'load';
+}
+
+function formatContextValue(value: unknown) {
+  const tokens = Number(value);
+  if (!Number.isFinite(tokens)) return '-';
+  return tokens >= 1024 && tokens % 1024 === 0 ? (tokens / 1024) + 'K' : tokens.toLocaleString();
+}
 
 function togglePublishLog() {
   logCollapsed.value = !logCollapsed.value;
@@ -98,6 +128,20 @@ function deploymentModeLabel(deployment: any) {
   return locale.value === 'zh-CN' ? '独立实例' : 'Dedicated instance';
 }
 
+function formatGpuMemory(mib: number | null) {
+  if (mib === null || !Number.isFinite(mib)) return '-';
+  return (mib / 1024).toFixed(1) + ' GB';
+}
+
+function deploymentGpuLabel(deployment: any) {
+  const ids = Array.isArray(deployment.args?.gpu_device_ids) ? deployment.args.gpu_device_ids.map(String) : [];
+  if (!ids.length) return locale.value === 'zh-CN' ? '全部 GPU' : 'All GPUs';
+  return ids.map((id: string) => {
+    const option = gpuDeviceOptions.value.find((item) => item.value === id || String(item.index) === id);
+    return option ? 'GPU ' + option.index : id.slice(0, 12);
+  }).join(', ');
+}
+
 function selectLoadedDeployment(deployment: any) {
   selectedLoadedDeploymentId.value = deployment.deployment_id;
   clearPublishLogs();
@@ -106,7 +150,14 @@ function selectLoadedDeployment(deployment: any) {
   if (modelId) deployModelId.value = modelId;
   const runtimeContainer = containers.value.find((item) => item.runtime === deployment.service_type);
   if (runtimeContainer) selectedContainerKey.value = runtimeContainer.key;
+  applyDeploymentArgs(deployment.args);
 }
+
+watch(
+  () => activeLoadedDeployment.value?.deployment_id,
+  () => applyDeploymentArgs(activeLoadedDeployment.value?.args),
+  { immediate: true }
+);
 
 function shellSingleQuote(value: string) {
   return "'" + value.replace(/'/g, "'\\''") + "'";
@@ -115,13 +166,15 @@ function shellSingleQuote(value: string) {
 function deploymentCurlCommand(deployment: any) {
   const kind = deploymentApiKind(deployment);
   const model = deploymentModelName(deployment);
+  const curl = "curl --silent --show-error --fail-with-body --noproxy '*' --connect-timeout 5 --max-time 300 -X POST ";
+  const report = " -w '\\nHTTP %{http_code} in %{time_total}s\\n'";
   if (kind === 'document') {
-    return 'curl -sS -X POST ' + shellSingleQuote(inferenceEndpoint(deployment))
-      + " -F 'file=@/path/to/document.pdf' -F 'max_pages=1'";
+    return curl + shellSingleQuote(inferenceEndpoint(deployment))
+      + " -F 'file=@/path/to/document.pdf' -F 'max_pages=1'" + report;
   }
   if (kind === 'transcription') {
-    return 'curl -sS -X POST ' + shellSingleQuote(inferenceEndpoint(deployment))
-      + " -F 'file=@/path/to/audio.wav' -F 'language=auto' -F 'speakerCount=auto'";
+    return curl + shellSingleQuote(inferenceEndpoint(deployment))
+      + " -F 'file=@/path/to/audio.wav' -F 'preset=general' -F 'asrEngine=sensevoice' -F 'language=auto' -F 'speakerCount=auto' -F 'diarization=false'" + report;
   }
   if (kind === 'speech') {
     const payload = model.includes('voicedesign')
@@ -129,19 +182,21 @@ function deploymentCurlCommand(deployment: any) {
       : model.endsWith('-base')
         ? { model, input: '这是一段克隆音色测试。第一段返回后，后续音频继续传输。', language: 'Chinese', reference_audio: 'data:audio/wav;base64,<BASE64_AUDIO>', reference_text: '参考音频对应的准确文本', response_format: 'mp3', stream: true, stream_chunk_chars: 40 }
         : { model, input: '欢迎使用本地语音合成服务。第一段会尽快返回，后续音频持续传输。', voice: 'Vivian', language: 'Chinese', response_format: 'mp3', stream: true, stream_chunk_chars: 40 };
-    return 'curl -sS -X POST ' + shellSingleQuote(inferenceEndpoint(deployment))
+    return curl + shellSingleQuote(inferenceEndpoint(deployment))
       + " -H 'Content-Type: application/json' -d " + shellSingleQuote(JSON.stringify(payload))
-      + " --no-buffer --output speech.mp3";
+      + " --no-buffer --output speech.mp3" + report;
   }
+  const isChat = !['embedding', 'rerank', 'ground'].includes(kind);
   const payload = kind === 'embedding'
     ? { model, input: '测试文本', encoding_format: 'float' }
     : kind === 'rerank'
       ? { model, text_1: '什么是向量数据库？', text_2: '向量数据库用于相似度检索。' }
       : kind === 'ground'
         ? { image_url: 'https://example.com/image.jpg', prompt: '定位图片中的目标', generation_mode: 'hybrid' }
-      : { model, messages: [{ role: 'user', content: '你好，请简短介绍你自己。' }], max_tokens: 128 };
-  return 'curl -sS -X POST ' + shellSingleQuote(inferenceEndpoint(deployment))
-    + " -H 'Content-Type: application/json' -d " + shellSingleQuote(JSON.stringify(payload));
+      : { model, messages: [{ role: 'user', content: '你好，请简短介绍你自己。' }], max_tokens: 128, stream: true };
+  return curl + shellSingleQuote(inferenceEndpoint(deployment))
+    + " -H 'Content-Type: application/json' -d " + shellSingleQuote(JSON.stringify(payload))
+    + (isChat ? ' --no-buffer' : '') + report;
 }
 </script>
 
@@ -196,6 +251,9 @@ function deploymentCurlCommand(deployment: any) {
                 <div class="publish-loaded-stats">
                   <span>{{ t('size') }} <b>{{ deploymentModelSize(deployment) }}</b></span>
                   <span>{{ t('port') }} <b>{{ deployment.public_port }}</b></span>
+                  <span v-if="deployment.args?.max_model_len">{{ locale === 'zh-CN' ? '上下文' : 'Context' }} <b>{{ formatContextValue(deployment.args.max_model_len) }}</b></span>
+                  <span v-if="deployment.args?.max_num_seqs">{{ locale === 'zh-CN' ? '并发' : 'Concurrency' }} <b>{{ deployment.args.max_num_seqs }}</b></span>
+                  <span>{{ t('gpuTarget') }} <b>{{ deploymentGpuLabel(deployment) }}</b></span>
                   <a-button danger size="small" @click.stop="unloadDeployment(deployment)">{{ locale === 'zh-CN' ? '退出加载' : 'Eject' }}</a-button>
                 </div>
               </div>
@@ -312,6 +370,15 @@ function deploymentCurlCommand(deployment: any) {
         </div>
         <div class="publish-runtime-actions">
           <a-button class="publish-load-model-action" size="small" @click="loadModelModalOpen = true"><template #icon><PlusOutlined /></template>{{ locale === 'zh-CN' ? '加载模型' : 'Load Model' }}</a-button>
+          <button
+            v-if="publishParameterSummary && publishRuntimeSelectionVisible && !publishSelectedRuntime?.profile_id && !publishSelectedRuntime?.existing_container_name"
+            type="button"
+            class="publish-parameter-readout"
+            @click="openRuntimeParameters"
+          >
+            <span>{{ locale === 'zh-CN' ? '调整运行参数' : 'Tune runtime' }}</span>
+            <strong>{{ publishParameterSummary }}</strong>
+          </button>
           <a-button
             v-if="publishRuntimeSelectionVisible && !publishSelectedRuntime?.profile_id && publishSelectedRuntime?.key !== 'funasr-gateway' && !publishSelectedRuntime?.existing_container_name"
             size="small"
@@ -411,6 +478,18 @@ function deploymentCurlCommand(deployment: any) {
 
           <!-- Parameters Tab -->
           <div v-else-if="publishPanelTab === 'load'" class="publish-side-panel-body">
+            <div v-if="publishSelectedRuntime?.profile_id && gpuDeviceOptions.length" class="publish-gpu-router">
+              <div class="publish-gpu-router-head">
+                <span><strong>{{ t('gpuTarget') }}</strong><small>{{ t('gpuTargetHint') }}</small></span>
+                <b>{{ selectedGpuCount }} {{ locale === 'zh-CN' ? '张卡' : 'selected' }}</b>
+              </div>
+              <a-checkbox-group v-model:value="deployGpuDeviceIds" class="publish-gpu-grid" @change="syncGpuParallelism">
+                <a-checkbox v-for="gpu in gpuDeviceOptions" :key="gpu.value" :value="gpu.value" class="publish-gpu-card">
+                  <span class="publish-gpu-index">GPU {{ gpu.index }}</span>
+                  <span class="publish-gpu-copy"><strong>{{ gpu.name }}</strong><small>{{ t('free') }} {{ formatGpuMemory(gpu.freeMiB) }} / {{ formatGpuMemory(gpu.totalMiB) }} · {{ gpu.utilization === null ? '-' : Math.round(gpu.utilization) + '%' }}</small></span>
+                </a-checkbox>
+              </a-checkbox-group>
+            </div>
             <a-alert v-if="publishSelectedRuntime?.profile_id" type="info" show-icon class="publish-audio-runtime-alert" :message="publishSelectedRuntime.mode === 'managed' ? (locale === 'zh-CN' ? '参数由 AI Stack 托管服务管理' : 'Parameters are managed by AI Stack') : (locale === 'zh-CN' ? '参数由专用运行时管理' : 'Parameters are managed by the dedicated runtime')" :description="publishSelectedRuntime.detail" />
             <a-alert v-else-if="publishRequiresAudioRuntime" type="info" show-icon class="publish-audio-runtime-alert" :message="locale === 'zh-CN' ? '参数由 FunASR Gateway 管理' : 'Parameters are managed by FunASR Gateway'" :description="publishAudioRuntimeDetail" />
             <div v-else class="publish-field-grid publish-side-field-grid">
@@ -420,14 +499,65 @@ function deploymentCurlCommand(deployment: any) {
               </label>
             </div>
             <div v-if="!publishRequiresAudioRuntime && !publishSelectedRuntime?.profile_id" class="publish-parameter-panel">
-              <div class="publish-parameter-panel-head">{{ t('parameters') }}</div>
+              <div class="publish-parameter-panel-head">
+                <div>
+                  <strong>{{ locale === 'zh-CN' ? '运行参数' : 'Runtime parameters' }}</strong>
+                  <small>{{ publishParameterSourceLabel }}</small>
+                </div>
+                <div class="publish-parameter-presets">
+                  <a-button size="small" @click="applyBaselineDeploymentParameters">{{ locale === 'zh-CN' ? '基础值' : 'Baseline' }}</a-button>
+                  <a-button size="small" @click="applyModelMaxContext">{{ locale === 'zh-CN' ? '上下文拉满' : 'Max context' }}</a-button>
+                </div>
+              </div>
+              <div v-if="publishParameterSummary" class="publish-parameter-callout">
+                <strong>{{ publishParameterSummary }}</strong>
+                <span>{{ locale === 'zh-CN' ? '点击发布后，这组参数会写入任务；成功配置会在下次选择此模型时自动恢复。' : 'These values are written to the publish task; successful settings are restored next time.' }}</span>
+              </div>
               <div class="publish-parameter-panel-body">
+                <div v-if="gpuDeviceOptions.length" class="publish-gpu-router">
+                  <div class="publish-gpu-router-head">
+                    <span>
+                      <strong>{{ t('gpuTarget') }}</strong>
+                      <small>{{ t('gpuTargetHint') }}</small>
+                    </span>
+                    <b>{{ selectedGpuCount }} {{ locale === 'zh-CN' ? '张卡' : 'selected' }}</b>
+                  </div>
+                  <a-checkbox-group v-model:value="deployGpuDeviceIds" class="publish-gpu-grid" @change="syncGpuParallelism">
+                    <a-checkbox v-for="gpu in gpuDeviceOptions" :key="gpu.value" :value="gpu.value" class="publish-gpu-card">
+                      <span class="publish-gpu-index">GPU {{ gpu.index }}</span>
+                      <span class="publish-gpu-copy">
+                        <strong>{{ gpu.name }}</strong>
+                        <small>{{ t('free') }} {{ formatGpuMemory(gpu.freeMiB) }} / {{ formatGpuMemory(gpu.totalMiB) }} · {{ gpu.utilization === null ? '-' : Math.round(gpu.utilization) + '%' }}</small>
+                      </span>
+                    </a-checkbox>
+                  </a-checkbox-group>
+                  <small class="publish-gpu-parallel-hint">{{ selectedContainer?.runtime === 'trtllm' ? t('gpuParallelTrtHint') : t('gpuParallelHint') }}</small>
+                </div>
                 <template v-if="selectedContainer?.runtime === 'vllm'">
                   <div class="publishParamField"><label>{{ t('contextLength') + ' · ' + paramLimitText() }}</label><div class="param-control"><a-input-number v-model:value="deployContextLength" :min="contextLimit.min" :max="contextLimit.max" :step="contextLimit.step" /><a-slider v-model:value="deployContextLength" :min="contextLimit.min" :max="contextLimit.max" :step="contextLimit.step" /></div></div>
                   <div class="publishParamField"><label>{{ t('gpuUtil') }}</label><div class="param-control"><a-input-number v-model:value="deployGpuUtil" :min="10" :max="99" :step="1" addon-after="%" /><a-slider v-model:value="deployGpuUtil" :min="10" :max="99" :step="1" /></div></div>
                   <div class="publishParamField"><label>{{ t('maxSeqs') }}</label><div class="param-control"><a-input-number v-model:value="deployMaxSeqs" :min="1" :max="256" /><a-slider v-model:value="deployMaxSeqs" :min="1" :max="256" /></div></div>
-                  <div class="publishParamField"><label>{{ t('tensorParallel') }}</label><div class="param-control"><a-input-number v-model:value="deployTensorParallel" :min="1" :max="tensorParallelLimit" /><a-slider v-model:value="deployTensorParallel" :min="1" :max="tensorParallelLimit" /></div></div>
+                  <div class="publishParamField"><label>{{ t('tensorParallel') }}</label><div class="param-control"><a-input-number v-model:value="deployTensorParallel" :min="1" :max="tensorParallelLimit" disabled /><a-slider v-model:value="deployTensorParallel" :min="1" :max="tensorParallelLimit" disabled /></div></div>
                   <div class="publishParamField"><label>{{ t('kvCacheDtype') }}</label><a-select v-model:value="deployKvCacheDtype" :options="[{label:'auto', value:'auto'}, {label:'fp8', value:'fp8'}, {label:'fp8_e5m2', value:'fp8_e5m2'}]" /></div>
+                  <section v-if="publishToolCallSettingsVisible" class="publish-tool-routing">
+                    <div class="publish-tool-routing-head">
+                      <span>
+                        <strong>{{ t('autoToolChoice') }}</strong>
+                        <small>{{ t('autoToolChoiceHint') }}</small>
+                      </span>
+                      <a-switch v-model:checked="deployEnableAutoToolChoice" />
+                    </div>
+                    <div v-if="deployEnableAutoToolChoice" class="publishParamField">
+                      <label>{{ t('toolCallParser') }}</label>
+                      <a-select v-model:value="deployToolCallParser" :options="publishToolCallParserOptions" />
+                    </div>
+                    <small v-else class="publish-tool-routing-disabled">{{ t('autoToolChoiceDisabledHint') }}</small>
+                    <div class="publishParamField">
+                      <label>{{ t('reasoningParser') }}</label>
+                      <a-select v-model:value="deployReasoningParser" :options="publishReasoningParserOptions" />
+                      <small class="publish-tool-routing-hint">{{ t('reasoningParserHint') }}</small>
+                    </div>
+                  </section>
                 </template>
                 <template v-else-if="selectedContainer?.runtime === 'trtllm'">
                   <div class="publishParamField"><label>{{ t('trtMaxBatchSize') }}</label><div class="param-control"><a-input-number v-model:value="trtMaxBatchSize" :min="1" :max="256" /><a-slider v-model:value="trtMaxBatchSize" :min="1" :max="256" /></div></div>
@@ -468,8 +598,8 @@ function deploymentCurlCommand(deployment: any) {
         <span style="color:#63798a;font-size:.78rem;font-weight:650">{{ locale === 'zh-CN' ? '排序' : 'Sort' }}</span>
         <a-segmented v-model:value="loadModelSort" :options="[{ label: locale === 'zh-CN' ? '最近' : 'Recency', value: 'recency' }, { label: t('size'), value: 'size' }, { label: locale === 'zh-CN' ? '已下载' : 'Downloaded', value: 'downloaded' }]" size="small" />
       </div>
-      <a-table :data-source="loadModelCandidateList" :pagination="false" size="small" row-key="id" :scroll="{ y: 360 }">
-        <template #empty><a-empty :description="locale === 'zh-CN' ? '没有匹配的模型' : 'No matching models'" /></template>
+      <a-table :data-source="loadModelCandidateList" :loading="modelCatalogLoading && !models.length" :pagination="false" size="small" row-key="id" :scroll="{ y: 360 }">
+        <template #empty><a-empty :description="loadModelEmptyDescription" /></template>
         <a-table-column :title="t('modelName')" key="model" :width="200">
           <template #default="{ record }">
             <div style="display:grid;gap:2px">

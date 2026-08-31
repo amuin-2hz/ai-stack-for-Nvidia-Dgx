@@ -38,6 +38,7 @@ export type DeploymentRecord = {
   health_url: string;
   openai_models: string[];
   warnings: string[];
+  args?: Record<string, unknown>;
   suite?: DeploymentSuite;
 };
 
@@ -177,8 +178,22 @@ export type DeviceInfo = {
   cpu?: { model?: string; cores?: number };
   memory?: { total_bytes?: number; free_bytes?: number };
   storage?: { available?: boolean; volumes?: Array<{ mount: string; total_bytes: number; used_bytes: number; free_bytes: number; used_percent: number }> };
-  gpu?: { available?: boolean; detail?: string; devices?: Array<Record<string, unknown>> };
+  gpu?: { available?: boolean; detail?: string; devices?: GpuDeviceInfo[] };
   temperatures?: Array<{ label: string; celsius: number; source: string }>;
+};
+
+export type GpuDeviceInfo = {
+  id?: string;
+  index?: number;
+  uuid?: string;
+  name?: string;
+  utilization_gpu_percent?: number | null;
+  memory_total_mib?: number | null;
+  memory_used_mib?: number | null;
+  memory_free_mib?: number | null;
+  temperature_celsius?: number | null;
+  power_draw_watts?: number | null;
+  driver_version?: string;
 };
 
 export type SystemCheck = {

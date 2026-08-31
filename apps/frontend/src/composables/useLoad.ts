@@ -14,8 +14,13 @@ import {
   containers, containerOptions, readyModelList, view,
   shortModelPath, formatBytes, modelFormatLabel,
   selectDeployModel, loadContainerLogs, actionTargetName,
-  refresh, deploymentArgs, selectedLogContainer,
+  refresh, deploymentArgs, applyDeploymentArgs, selectedLogContainer,
   currentLoadedModel, publicHost, runningDeployments,
+  deployContextLength, deployGpuUtil, deployMaxSeqs, deployTensorParallel, deployKvCacheDtype,
+  deployGpuDeviceIds, selectedGpuCount,
+  deployEnableAutoToolChoice, deployToolCallParser, deployReasoningParser,
+  effectiveToolCallParser, effectiveReasoningParser, recommendedToolCallParser, recommendedReasoningParser,
+  trtMaxBatchSize, trtMaxNumTokens, trtKvCacheFraction, trtTpSize, trtPpSize, contextLimit,
   canDeployToSelected,
   selectedTaskId, loadTaskLog, activeTasks, tasks, taskProgress, taskRuntimePlanSummary
 } from './useApp';
@@ -219,6 +224,136 @@ export const publishPrimaryActionLabel = computed(() => {
 export const publishRuntimeSelectionVisible = computed(() =>
   Boolean(publishActiveModel.value && publishRuntimeOptions.value.length)
 );
+
+export function modelSupportsToolCallConfig(model: ModelRecord | null | undefined): boolean {
+  if (!model) return false;
+  const capabilities = new Set((model.capabilities ?? []).map((item) => item.toLowerCase()));
+  const excludedCapabilities = [
+    'asr', 'tts', 'speaker-verification', 'speaker-diarization',
+    'embedding', 'embeddings', 'rerank', 'reranker'
+  ];
+  if (excludedCapabilities.some((capability) => capabilities.has(capability))) return false;
+  const text = [model.id, model.display_name, model.local.format, model.runtime.preferred, ...capabilities].join(' ').toLowerCase();
+  if (/(audio|asr|tts|funasr|whisper|sensevoice|cosyvoice|rerank|embed)/.test(text)) return false;
+  if ([...capabilities].some((capability) => [
+    'chat', 'generative', 'generation', 'text-generation', 'causal-lm', 'causallm', 'vision-language'
+  ].includes(capability))) return true;
+  if (capabilities.size && !capabilities.has('unknown')) return false;
+  const architecture = String(model.local.architecture ?? '').toLowerCase();
+  return /(causallm|conditionalgeneration|qwen|llama|mistral|gemma|deepseek|chatglm|baichuan|gpt)/.test(architecture + ' ' + text);
+}
+
+export const publishToolCallSettingsVisible = computed(() =>
+  publishSelectedRuntime.value?.runtime === 'vllm'
+  && modelSupportsToolCallConfig(publishActiveModel.value)
+);
+
+export const publishToolCallParserOptions = computed(() => [
+  { label: t('parserAutoRecommend') + ' · ' + recommendedToolCallParser.value, value: 'auto' },
+  { label: 'qwen3_coder', value: 'qwen3_coder' },
+  { label: 'qwen3_xml', value: 'qwen3_xml' },
+  { label: 'hermes', value: 'hermes' }
+]);
+
+export const publishReasoningParserOptions = computed(() => [
+  {
+    label: t('parserAutoRecommend') + ' · ' + (recommendedReasoningParser.value || t('parserDisabled')),
+    value: 'auto'
+  },
+  { label: t('parserDisabled'), value: '' },
+  { label: 'qwen3', value: 'qwen3' }
+]);
+
+function compactTokenCount(value: number): string {
+  if (value >= 1024 && value % 1024 === 0) return (value / 1024) + 'K';
+  return new Intl.NumberFormat(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US').format(value);
+}
+
+const latestSuccessfulDeploymentPreset = computed(() => {
+  const modelId = publishActiveModel.value?.id;
+  const runtime = selectedContainer.value?.runtime;
+  if (!modelId || !runtime) return null;
+  return tasks.value.find((task) =>
+    task.type === 'deploy'
+    && task.status === 'succeeded'
+    && task.metadata?.model_id === modelId
+    && task.metadata?.service_type === runtime
+    && task.metadata?.args
+  ) ?? null;
+});
+
+export const publishParameterSummary = computed(() => {
+  const runtime = selectedContainer.value?.runtime;
+  if (runtime === 'vllm') {
+    let summary = (locale.value === 'zh-CN' ? '上下文 ' : 'Context ')
+      + compactTokenCount(deployContextLength.value)
+      + ' · ' + deployGpuUtil.value + '% · '
+      + 'GPU × ' + selectedGpuCount.value + ' · '
+      + (locale.value === 'zh-CN' ? '并发 ' : 'Concurrency ') + deployMaxSeqs.value;
+    if (publishToolCallSettingsVisible.value) {
+      summary += ' · ' + t('autoToolChoiceShort') + ' ' + (deployEnableAutoToolChoice.value ? t('on') : t('off'))
+        + ' · Tool ' + effectiveToolCallParser.value
+        + ' · Reasoning ' + (effectiveReasoningParser.value || t('parserDisabled'));
+    }
+    return summary;
+  }
+  if (runtime === 'trtllm') {
+    return (locale.value === 'zh-CN' ? '令牌 ' : 'Tokens ')
+      + compactTokenCount(trtMaxNumTokens.value)
+      + ' · KV ' + Math.round(trtKvCacheFraction.value * 100) + '% · '
+      + 'GPU × ' + selectedGpuCount.value + ' · '
+      + (locale.value === 'zh-CN' ? '批量 ' : 'Batch ') + trtMaxBatchSize.value;
+  }
+  return '';
+});
+
+export const publishParameterSourceLabel = computed(() => latestSuccessfulDeploymentPreset.value
+  ? (locale.value === 'zh-CN' ? '已恢复该模型上次成功配置' : 'Restored this model\'s last successful configuration')
+  : (locale.value === 'zh-CN' ? '首次发布使用基础值，修改后会随成功记录保留' : 'First publish uses baseline values; successful settings are retained'));
+
+let restoredDeploymentPresetKey = '';
+watch(
+  [
+    () => publishActiveModel.value?.id ?? '',
+    () => selectedContainer.value?.runtime ?? '',
+    () => latestSuccessfulDeploymentPreset.value?.id ?? ''
+  ],
+  ([modelId, runtime, taskId]) => {
+    if (!modelId || !runtime) return;
+    const restoreKey = modelId + ':' + runtime + ':' + taskId;
+    if (restoreKey === restoredDeploymentPresetKey) return;
+    restoredDeploymentPresetKey = restoreKey;
+    if (latestSuccessfulDeploymentPreset.value?.metadata?.args) {
+      applyDeploymentArgs(latestSuccessfulDeploymentPreset.value.metadata.args as Record<string, unknown>);
+    }
+  },
+  { immediate: true }
+);
+
+export function applyModelMaxContext() {
+  if (selectedContainer.value?.runtime === 'trtllm') trtMaxNumTokens.value = contextLimit.value.max;
+  else deployContextLength.value = contextLimit.value.max;
+}
+
+export function applyBaselineDeploymentParameters() {
+  const limit = contextLimit.value;
+  if (selectedContainer.value?.runtime === 'trtllm') {
+    trtMaxBatchSize.value = 8;
+    trtMaxNumTokens.value = limit.default;
+    trtKvCacheFraction.value = 0.9;
+    trtTpSize.value = selectedGpuCount.value;
+    trtPpSize.value = 1;
+    return;
+  }
+  deployContextLength.value = limit.default;
+  deployGpuUtil.value = 30;
+  deployMaxSeqs.value = 4;
+  deployTensorParallel.value = selectedGpuCount.value;
+  deployKvCacheDtype.value = 'auto';
+  deployEnableAutoToolChoice.value = false;
+  deployToolCallParser.value = 'auto';
+  deployReasoningParser.value = 'auto';
+}
 
 export function selectPublishRuntime(key: string) {
   publishSelectedRuntimeKey.value = key;
@@ -560,6 +695,7 @@ export async function previewDeploymentPlan() {
   if (!model || !container || !canDeployToSelected()) return;
   deploymentPlanLoading.value = true;
   try {
+    const args = deploymentArgs();
     deploymentPlanPreview.value = await api<any>('/deployments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -567,7 +703,7 @@ export async function previewDeploymentPlan() {
         model_id: model.id,
         service_type: container.runtime,
         openai_model: deployOpenAiModel.value || model.id,
-        args: deploymentArgs()
+        args
       })
     });
     message.success(locale.value === 'zh-CN' ? '运行计划已生成' : 'Runtime plan ready');
@@ -619,7 +755,8 @@ export async function deployModelTo(model: ModelRecord, container: { key: string
   selectedContainerKey.value = container.key;
   const serviceType = container.runtime as ServiceType;
   const openaiModel = deployOpenAiModel.value || model.id;
-  beginPublishTask(model, container.name || container.runtime, { service_type: serviceType });
+  const args = deploymentArgs();
+  beginPublishTask(model, container.name || container.runtime, { service_type: serviceType, args });
   try {
     const payload = await api<any>('/deployments/start', {
       method: 'POST',
@@ -628,7 +765,7 @@ export async function deployModelTo(model: ModelRecord, container: { key: string
         model_id: model.id,
         service_type: serviceType,
         openai_model: openaiModel,
-        args: deploymentArgs()
+        args
       })
     });
     if (payload.status === 'already_running') message.info(t('alreadyRunning'));
@@ -684,7 +821,8 @@ export async function activateSelectedPublishRuntime() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model_id: model.id,
-          openai_model: deployOpenAiModel.value || model.id
+          openai_model: deployOpenAiModel.value || model.id,
+          ...(deployGpuDeviceIds.value.length ? { gpu_device_ids: [...deployGpuDeviceIds.value] } : {})
         })
       });
       if (payload.task?.id) {
