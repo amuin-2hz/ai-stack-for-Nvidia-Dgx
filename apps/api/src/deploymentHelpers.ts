@@ -112,7 +112,9 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     const active = listActiveDeployments();
     const liveByContainer = new Map<string, ActiveDeploymentRecord>();
     for (const deployment of active) {
-      const baseDeployment = normalizeDeployment(deployment);
+      const persistedArgs = (deployment as ActiveDeploymentRecord & { args?: Record<string, unknown> }).args;
+      const recoveredArgs = persistedArgs ?? (deployment.service_type === "vllm" ? await deploymentArgsForContainer(deployment.container_name) : undefined);
+      const baseDeployment = normalizeDeployment({ ...deployment, args: recoveredArgs });
       const normalized = { ...baseDeployment, suite: baseDeployment.suite ?? await deploymentSuiteForTask(baseDeployment.task_id) };
       if (!(await deploymentContainerIsRunning(normalized.container_name))) {
         upsertDeployment({ ...normalized, status: "stopped", updated_at: new Date().toISOString() });
@@ -218,7 +220,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     configured: Awaited<ReturnType<typeof listDeployments>>,
     active: ReturnType<typeof listActiveDeployments>
   ) {
-    const byId = new Map(
+    const byId = new Map<string, any>(
       configured.map((deployment) => [deployment.deployment_id, deployment])
     );
     for (const deployment of active) {
@@ -236,6 +238,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         worker_endpoint: normalized.worker_endpoint,
         openai_models: normalized.suite?.components.map((component) => component.model_id) ?? [normalized.openai_model],
         warnings: [] as string[],
+        args: (normalized as typeof normalized & { args?: Record<string, unknown> }).args,
         suite: normalized.suite
       });
     }
@@ -303,7 +306,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     const base_url = publicBaseUrl(serviceType, hostPort);
     const health_url = healthUrl(serviceType, hostPort);
     const ready = await runtimeIsReady(health_url, base_url, openaiModel, serviceType, serviceType);
-    const deployment: ActiveDeploymentRecord = {
+    const deployment: ActiveDeploymentRecord & { args?: Record<string, unknown> } = {
       deployment_id: deploymentInstanceId(serviceType, modelId, openaiModel),
       model_id: modelId,
       service_type: serviceType,
@@ -315,6 +318,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
       worker_endpoint: base_url,
       openai_model: openaiModel,
       status: ready ? "running" : "loading",
+      args: serviceType === "vllm" ? runtimeArgsFromVllmCommand(args) : undefined,
       updated_at: now
     };
     upsertDeployment(deployment);
@@ -375,6 +379,17 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     return value || null;
   }
 
+  async function deploymentArgsForContainer(containerName: string): Promise<Record<string, unknown> | undefined> {
+    if (!containerName) return undefined;
+    const inspected = await runCommand("docker", ["inspect", containerName, "--format", "{{json .Config.Cmd}}"], 5000);
+    if (!inspected.ok || !inspected.stdout.trim()) return undefined;
+    try {
+      const args = JSON.parse(inspected.stdout.trim());
+      return Array.isArray(args) ? runtimeArgsFromVllmCommand(args.map(String)) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   return {
     configuredDeployments,
     findDeployment,
@@ -385,4 +400,32 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     runtimeHealthUrl,
     runtimeOpenAiBaseUrl
   };
+}
+
+export function runtimeArgsFromVllmCommand(args: string[]): Record<string, unknown> | undefined {
+  const result: Record<string, unknown> = {};
+  const numericFlags: Record<string, string> = {
+    "--max-model-len": "max_model_len",
+    "--gpu-memory-utilization": "gpu_memory_utilization",
+    "--max-num-seqs": "max_num_seqs",
+    "--tensor-parallel-size": "tensor_parallel_size"
+  };
+  for (const [flag, key] of Object.entries(numericFlags)) {
+    const value = Number(flagValue(args, flag));
+    if (Number.isFinite(value)) result[key] = value;
+  }
+  const kvCache = flagValue(args, "--kv-cache-dtype");
+  if (kvCache) result.kv_cache_dtype = kvCache;
+  result.enable_auto_tool_choice = args.includes("--enable-auto-tool-choice");
+  const toolCallParser = flagValue(args, "--tool-call-parser");
+  if (toolCallParser) result.tool_call_parser = toolCallParser;
+  const reasoningParser = flagValue(args, "--reasoning-parser");
+  if (reasoningParser) result.reasoning_parser = reasoningParser;
+  return Object.keys(result).length ? result : undefined;
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  const value = index >= 0 ? args[index + 1]?.trim() : "";
+  return value || undefined;
 }

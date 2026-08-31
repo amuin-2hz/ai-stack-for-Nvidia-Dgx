@@ -30,6 +30,37 @@ export interface RuntimeCommand {
   env: Record<string, string>;
 }
 
+const VLLM_PARSER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+
+export function recommendedVllmToolCallParser(modelId: string, openaiModel: string): string | undefined {
+  const modelName = modelId + " " + openaiModel;
+  return /(?:qwen[-_ ]?3(?:[._-]?(?:5|6|8))|omnicoder)/i.test(modelName) ? "qwen3_coder" : undefined;
+}
+
+export function validateVllmRuntimeArgs(
+  args: Record<string, unknown>,
+  modelId: string,
+  openaiModel: string
+): { args: Record<string, unknown>; detail?: string } {
+  if (args.enable_auto_tool_choice !== undefined && typeof args.enable_auto_tool_choice !== "boolean") {
+    return { args, detail: "enable_auto_tool_choice must be a boolean." };
+  }
+  for (const key of ["tool_call_parser", "reasoning_parser"] as const) {
+    const value = args[key];
+    if (value !== undefined && (typeof value !== "string" || !VLLM_PARSER_IDENTIFIER.test(value))) {
+      return { args, detail: key + " must be a valid parser identifier." };
+    }
+  }
+  if (args.enable_auto_tool_choice === true) {
+    const parser = args.tool_call_parser ?? recommendedVllmToolCallParser(modelId, openaiModel);
+    if (!parser) {
+      return { args, detail: "tool_call_parser is required when enable_auto_tool_choice is enabled for this model." };
+    }
+    return { args: { ...args, tool_call_parser: parser } };
+  }
+  return { args };
+}
+
 export function createRuntimePlan(
   deployment: DeploymentRecord,
   model: ModelRecord,
@@ -74,6 +105,14 @@ export function runtimeCommandFor(
   if (serviceType === "vllm") {
     const containerName = deploymentContainerName(serviceType, modelId, openaiModel);
     const isOmniCoder = /omnicoder/i.test(modelId + " " + openaiModel);
+    const validatedArgs = validateVllmRuntimeArgs(args, modelId, openaiModel);
+    if (validatedArgs.detail) throw new Error(validatedArgs.detail);
+    const enableAutoToolChoice = validatedArgs.args.enable_auto_tool_choice === true;
+    const toolCallParser = enableAutoToolChoice ? String(validatedArgs.args.tool_call_parser) : "";
+    const reasoningParser = typeof validatedArgs.args.reasoning_parser === "string" ? validatedArgs.args.reasoning_parser : "";
+    const optionalVllmFlags = (enableAutoToolChoice
+      ? " --enable-auto-tool-choice --tool-call-parser \"$VLLM_TOOL_CALL_PARSER\""
+      : "") + (reasoningParser ? " --reasoning-parser \"$VLLM_REASONING_PARSER\"" : "");
     const requestedGpuUtilization = Number(args.gpu_memory_utilization ?? process.env.VLLM_GPU_MEMORY_UTILIZATION ?? "0.20");
     const requestedMaxSeqs = Number(args.max_num_seqs ?? process.env.VLLM_MAX_NUM_SEQS ?? "16");
     // OmniCoder-9B needs more than a 20% engine budget for its 17.7 GiB
@@ -83,7 +122,7 @@ export function runtimeCommandFor(
 
     return {
       command: "bash",
-      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f \"$VLLM_CONTAINER_NAME\" >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker image inspect \"$VLLM_IMAGE\" >/dev/null 2>&1 || docker pull \"$VLLM_IMAGE\"; echo __AMUIN_STAGE__:start:running; docker run -d --name \"$VLLM_CONTAINER_NAME\" --label amuin.role=model-runtime --label amuin.runtime=vllm --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus all --ipc host -p \"$AI_STACK_BIND_ADDR:$VLLM_PUBLIC_PORT:8000\" -v \"$PWD/models/$MODEL_ALIAS:/models/$MODEL_ALIAS:ro\" -v \"$PWD/cache/hf:/root/.cache/huggingface\" -e \"HF_TOKEN=$HF_TOKEN\" -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \"$VLLM_IMAGE\" \"/models/$MODEL_ALIAS\" --served-model-name \"$OPENAI_MODEL\" --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size \"$VLLM_TENSOR_PARALLEL_SIZE\" --max-model-len \"$VLLM_MAX_MODEL_LEN\" --gpu-memory-utilization \"$VLLM_GPU_MEMORY_UTILIZATION\" --max-num-seqs \"$VLLM_MAX_NUM_SEQS\" --kv-cache-dtype \"$VLLM_KV_CACHE_DTYPE\""],
+      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f \"$VLLM_CONTAINER_NAME\" >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker image inspect \"$VLLM_IMAGE\" >/dev/null 2>&1 || docker pull \"$VLLM_IMAGE\"; echo __AMUIN_STAGE__:start:running; docker run -d --name \"$VLLM_CONTAINER_NAME\" --label amuin.role=model-runtime --label amuin.runtime=vllm --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus all --ipc host -p \"$AI_STACK_BIND_ADDR:$VLLM_PUBLIC_PORT:8000\" -v \"$PWD/models/$MODEL_ALIAS:/models/$MODEL_ALIAS:ro\" -v \"$PWD/cache/hf:/root/.cache/huggingface\" -e \"HF_TOKEN=$HF_TOKEN\" -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \"$VLLM_IMAGE\" \"/models/$MODEL_ALIAS\" --served-model-name \"$OPENAI_MODEL\" --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size \"$VLLM_TENSOR_PARALLEL_SIZE\" --max-model-len \"$VLLM_MAX_MODEL_LEN\" --gpu-memory-utilization \"$VLLM_GPU_MEMORY_UTILIZATION\" --max-num-seqs \"$VLLM_MAX_NUM_SEQS\" --kv-cache-dtype \"$VLLM_KV_CACHE_DTYPE\"" + optionalVllmFlags],
       env: {
         VLLM_CONTAINER_NAME: containerName,
         MODEL_ALIAS: modelId,
@@ -96,7 +135,9 @@ export function runtimeCommandFor(
         VLLM_GPU_MEMORY_UTILIZATION: String(gpuMemoryUtilization),
         VLLM_MAX_NUM_SEQS: String(maxNumSeqs),
         VLLM_TENSOR_PARALLEL_SIZE: String(args.tensor_parallel_size ?? process.env.VLLM_TENSOR_PARALLEL_SIZE ?? "1"),
-        VLLM_KV_CACHE_DTYPE: String(args.kv_cache_dtype ?? process.env.VLLM_KV_CACHE_DTYPE ?? "auto")
+        VLLM_KV_CACHE_DTYPE: String(args.kv_cache_dtype ?? process.env.VLLM_KV_CACHE_DTYPE ?? "auto"),
+        ...(enableAutoToolChoice ? { VLLM_TOOL_CALL_PARSER: toolCallParser } : {}),
+        ...(reasoningParser ? { VLLM_REASONING_PARSER: reasoningParser } : {})
       }
     };
   }

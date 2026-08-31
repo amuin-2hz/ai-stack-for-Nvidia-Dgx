@@ -5,6 +5,7 @@ import { createDeploymentPlan as buildDeploymentPlan, startDeployment } from "..
 import { compatibilityFor, getModel, listModels } from "../modelRegistry.js";
 import { proxyHttp, parseMaybeJson } from "../httpProxy.js";
 import { runCommand } from "../utils.js";
+import { validateVllmRuntimeArgs } from "../runtimePlan.js";
 import type { ModelRecord, ServiceType } from "../types.js";
 
 export function register(
@@ -98,6 +99,9 @@ export function register(
     const localModelIds = new Set((await listModels(modelsRoot)).map((m: any) => m.id));
     if (body.openai_model && body.openai_model !== model.id && localModelIds.has(body.openai_model))
       return sendJson(res, 409, { detail: "openai_model points to a different local model." });
+    const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
+    if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
+    body.args = validatedArgs.args;
     const blocker = deploymentBlocker(model, serviceType, body.start === true);
     if (blocker) return sendJson(res, 409, blocker);
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
@@ -120,6 +124,9 @@ export function register(
     const localModelIds = new Set((await listModels(modelsRoot)).map((m: any) => m.id));
     if (body.openai_model && body.openai_model !== model.id && localModelIds.has(body.openai_model))
       return sendJson(res, 409, { detail: "openai_model points to a different local model." });
+    const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
+    if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
+    body.args = validatedArgs.args;
     const blocker = deploymentBlocker(model, serviceType, true);
     if (blocker) return sendJson(res, 409, blocker);
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
@@ -133,9 +140,12 @@ export function register(
     if (existing) {
       const normalized = dh.normalizeDeployment(existing);
       if (await dh.deploymentContainerIsRunning(normalized.container_name)) {
-        return sendJson(res, 200, { ...normalized, status: "already_running", openai_models: [normalized.openai_model], detail: "Deployment is already running." });
+        if (deploymentArgsMatch(normalized.args, body.args, serviceType)) {
+          return sendJson(res, 200, { ...normalized, status: "already_running", openai_models: [normalized.openai_model], detail: "Deployment is already running with the requested parameters." });
+        }
+      } else {
+        deleteDeployment(normalized.deployment_id);
       }
-      deleteDeployment(normalized.deployment_id);
     }
     sendJson(res, 202, await startDeployment(deployment, model, body, workspaceRoot, logsRoot, containerSettings));
   });
@@ -193,4 +203,48 @@ function deploymentBlocker(model: ModelRecord, serviceType: ServiceType, blockMe
   return null;
 }
 
+}
+
+export function validateDeploymentRuntimeArgs(
+  args: Record<string, unknown>,
+  serviceType: ServiceType,
+  modelId: string,
+  openaiModel: string
+): { args: Record<string, unknown>; detail?: string } {
+  return serviceType === "vllm" ? validateVllmRuntimeArgs(args, modelId, openaiModel) : { args };
+}
+
+export function deploymentArgsMatch(
+  existing: Record<string, unknown> | undefined,
+  requested: Record<string, unknown> | undefined,
+  serviceType?: ServiceType
+): boolean {
+  if (!existing) return !requested || Object.keys(requested).length === 0;
+  const keys = serviceType === "vllm"
+    ? ["max_model_len", "gpu_memory_utilization", "max_num_seqs", "tensor_parallel_size", "kv_cache_dtype",
+        "enable_auto_tool_choice", "tool_call_parser", "reasoning_parser"]
+    : undefined;
+  const existingArgs = pickArgs(existing, keys);
+  const requestedArgs = pickArgs(requested ?? {}, keys);
+  if (serviceType === "vllm") {
+    existingArgs.enable_auto_tool_choice = existingArgs.enable_auto_tool_choice === true;
+    requestedArgs.enable_auto_tool_choice = requestedArgs.enable_auto_tool_choice === true;
+  }
+  return stableJson(existingArgs) === stableJson(requestedArgs);
+}
+
+function pickArgs(args: Record<string, unknown>, keys?: string[]): Record<string, unknown> {
+  if (!keys) return args;
+  return Object.fromEntries(keys.filter((key) => key in args).map((key) => [key, args[key]]));
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item))
+      .join(",") + "}";
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
