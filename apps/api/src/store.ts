@@ -141,6 +141,7 @@ export function upsertDeployment(d: ActiveDeploymentRecord): ActiveDeploymentRec
     health_url: d.health_url,
     worker_endpoint: d.worker_endpoint,
     task_id: d.task_id,
+    args: d.args,
     suite: d.suite
   };
   db.prepare(`INSERT OR REPLACE INTO deployments (deployment_id, model_id, service_type, openai_model, container_name, status, config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`)
@@ -177,6 +178,7 @@ function deploymentRowToRecord(r: any): ActiveDeploymentRecord {
     openai_model: r.openai_model,
     status: r.status,
     task_id: config.task_id,
+    args: config.args,
     updated_at: r.updated_at,
     suite: config.suite,
   };

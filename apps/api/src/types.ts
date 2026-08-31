@@ -109,6 +109,7 @@ export interface DeploymentRecord {
   worker_endpoint: string | null;
   openai_models: string[];
   warnings: string[];
+  args?: Record<string, unknown>;
   suite?: DeploymentSuite;
 }
 
@@ -224,6 +225,7 @@ export interface ActiveDeploymentRecord {
   openai_model: string;
   status: string;
   task_id?: string;
+  args?: Record<string, unknown>;
   updated_at: string;
   suite?: DeploymentSuite;
 }

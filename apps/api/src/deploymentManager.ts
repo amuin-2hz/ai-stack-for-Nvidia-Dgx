@@ -38,7 +38,7 @@ export async function startDeployment(
   const args = request.args ?? {};
   const settings = resolveDeploymentSettings(serviceType, model.id, openaiModel, settingsFor(serviceType, containerSettings));
   const plan = createDeploymentPlan(deployment, model, serviceType, openaiModel, args, baseDir, settings);
-  const activeTarget = activeDeploymentFor(serviceType, model.id, openaiModel, "", settings);
+  const activeTarget = activeDeploymentFor(serviceType, model.id, openaiModel, "", settings, args);
   const command = plan.launch.command;
   const task = createTask("deploy", command, baseDir, join(logsRoot, "tasks", "deploy-" + activeTarget.deployment_id + ".log"), {
     deployment_id: activeTarget.deployment_id,
@@ -47,6 +47,7 @@ export async function startDeployment(
     openai_model: openaiModel,
     container_name: activeTarget.container_name,
     public_port: settings.public_port,
+    args,
     runtime_plan: runtimePlanMetadata(plan, "prepare")
   });
   persistTask(task);
@@ -167,7 +168,14 @@ function deploymentProgressFor(stage: string, status: RuntimePlanStageStatus): n
   return status === "succeeded" ? succeededProgress[stage] ?? 100 : runningProgress[stage] ?? 5;
 }
 
-function activeDeploymentFor(serviceType: ServiceType, modelId: string, openaiModel: string, taskId: string, settings: ContainerSettings): ActiveDeploymentRecord {
+function activeDeploymentFor(
+  serviceType: ServiceType,
+  modelId: string,
+  openaiModel: string,
+  taskId: string,
+  settings: ContainerSettings,
+  args: Record<string, unknown>
+): ActiveDeploymentRecord {
   const now = new Date().toISOString();
   if (serviceType === "vllm") {
     const deploymentId = deploymentInstanceId(serviceType, modelId, openaiModel);
@@ -184,6 +192,7 @@ function activeDeploymentFor(serviceType: ServiceType, modelId: string, openaiMo
       openai_model: openaiModel,
       status: "running",
       task_id: taskId,
+      args,
       updated_at: now
     };
   }
@@ -201,6 +210,7 @@ function activeDeploymentFor(serviceType: ServiceType, modelId: string, openaiMo
       openai_model: openaiModel,
       status: "running",
       task_id: taskId,
+      args,
       updated_at: now
     };
   }
@@ -217,6 +227,7 @@ function activeDeploymentFor(serviceType: ServiceType, modelId: string, openaiMo
     openai_model: openaiModel,
     status: "running",
     task_id: taskId,
+    args,
     updated_at: now
   };
 }
