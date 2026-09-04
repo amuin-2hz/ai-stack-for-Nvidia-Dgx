@@ -6,9 +6,10 @@
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { message } from 'ant-design-vue';
 import {
   CheckCircleOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, EyeOutlined, PlayCircleOutlined,
-  PlusOutlined, ReloadOutlined, SettingOutlined, StopOutlined, UnorderedListOutlined
+  ImportOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, StopOutlined, UnorderedListOutlined
 } from '@ant-design/icons-vue';
 import {
   locale, t, models, runtimeContainers, customContainers, customModalOpen, customTab, runningDeployments,
@@ -21,7 +22,7 @@ import {
   runContainerAction, viewContainerLogs, prepareContainerImage, testContainerImage,
   deleteContainerConfirm, deleteCustomContainerConfirm, deleteCustomComposeProfileConfirm, saveContainerConfig, saveContainerMetadata,
   customComposeProfiles, loadCustomComposeProfiles, selectCustomComposeProfile,
-  buildCustomProfileImage, startCustomProfileRuntime, customComposeProfileVersion, customComposeProfileImageLabel,
+  buildCustomProfileImage, startCustomProfileRuntime, customComposeProfileVersion, customComposeProfileImageLabel, importRuntimeExtension,
 } from '../composables/useServices';
 import type { ContainerRecord } from '../types';
 import type { CustomComposeProfile } from '../composables/useServices';
@@ -38,6 +39,15 @@ const metadataSuitableModels = ref<string[]>([]);
 const customModalMode = ref<'create' | 'edit'>('create');
 const editingProfileId = ref('');
 const runtimeTab = ref<'engines' | 'shared' | 'dedicated'>('engines');
+const runtimeImportModalOpen = ref(false);
+const runtimeImportFileInput = ref<HTMLInputElement | null>(null);
+const runtimeImportFile = ref<File | null>(null);
+const runtimeImportCategory = ref<'shared' | 'dedicated'>('dedicated');
+const runtimeImportOverwrite = ref(false);
+const runtimeImportBusy = ref(false);
+const runtimeImportPackageId = ref('');
+const runtimeImportPackageFiles = ref(0);
+
 
 type CustomRuntimeCard =
   | { kind: 'container'; key: string; container: ContainerRecord }
@@ -107,6 +117,67 @@ function openCustomRuntimeModal() {
   composeValidationResult.value = null;
   customTab.value = 'basics';
   customModalOpen.value = true;
+}
+
+
+function formatRuntimeImportSize(size: number): string {
+  if (size < 1024) return size + ' B';
+  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KiB';
+  return (size / 1024 / 1024).toFixed(1) + ' MiB';
+}
+
+function openRuntimeImportModal() {
+  runtimeImportFile.value = null;
+  runtimeImportPackageId.value = '';
+  runtimeImportPackageFiles.value = 0;
+  runtimeImportOverwrite.value = false;
+  runtimeImportCategory.value = runtimeTab.value === 'shared' ? 'shared' : 'dedicated';
+  if (runtimeImportFileInput.value) runtimeImportFileInput.value.value = '';
+  runtimeImportModalOpen.value = true;
+}
+
+async function selectRuntimeImportFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  runtimeImportFile.value = file;
+  runtimeImportPackageId.value = '';
+  runtimeImportPackageFiles.value = file ? 1 : 0;
+  if (!file || !/\.json$/i.test(file.name)) return;
+  try {
+    const document = JSON.parse(await file.text());
+    if (document?.format !== 'ai-stack-runtime/v1') return;
+    runtimeImportPackageId.value = String(document.manifest?.id ?? '');
+    runtimeImportPackageFiles.value = 1 + (Array.isArray(document.files) ? document.files.length : 0);
+    if (document.manifest?.category === 'shared' || document.manifest?.category === 'dedicated') {
+      runtimeImportCategory.value = document.manifest.category;
+    }
+  } catch {
+    // The API will return the detailed validation message during import.
+  }
+}
+
+async function submitRuntimeImport() {
+  if (!runtimeImportFile.value || runtimeImportBusy.value) return;
+  runtimeImportBusy.value = true;
+  try {
+    const result = await importRuntimeExtension(
+      runtimeImportFile.value,
+      runtimeImportCategory.value,
+      runtimeImportOverwrite.value
+    );
+    runtimeTab.value = result.category;
+    runtimeImportModalOpen.value = false;
+    message.success(locale.value === 'zh-CN'
+      ? `已导入 ${result.id}（${result.files.length} 个文件）`
+      : `Imported ${result.id} (${result.files.length} files)`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    message.error(locale.value === 'zh-CN' && /already exist/i.test(detail)
+      ? '同名文件已存在。确认内容后打开“覆盖已有文件”再导入。'
+      : detail);
+  } finally {
+    runtimeImportBusy.value = false;
+  }
 }
 
 function profileDisplayName(profile: CustomComposeProfile): string {
@@ -232,6 +303,7 @@ function customRuntimeIsShared(card: CustomRuntimeCard): boolean {
   const profile = profileForRuntimeCard(card);
   const container = profileCardContainer(card);
   const profileId = profile?.id || (container ? profileIdForContainer(container) : '');
+  if (profile?.category === 'shared' || profile?.category === 'dedicated') return profile.category === 'shared';
   return profileId === 'funasr-gateway' || profileId === 'vibevoice-hf' || profileId === 'qwen3-tts';
 }
 
@@ -411,10 +483,16 @@ function openCustomProfileEditor(profile: CustomComposeProfile) {
           <h2>{{ activeRuntimeTab.label }}</h2>
           <span>{{ activeCustomRuntimeCards.length }}</span>
         </div>
-        <a-button class="runtime-create-button" type="primary" size="small" @click="openCustomRuntimeModal">
-          <template #icon><PlusOutlined /></template>
-          {{ locale === 'zh-CN' ? '新增方案' : 'New Profile' }}
-        </a-button>
+        <div class="runtime-section-actions">
+          <a-button class="runtime-import-button" size="small" @click="openRuntimeImportModal">
+            <template #icon><ImportOutlined /></template>
+            {{ locale === 'zh-CN' ? '导入配置' : 'Import Config' }}
+          </a-button>
+          <a-button class="runtime-create-button" type="primary" size="small" @click="openCustomRuntimeModal">
+            <template #icon><PlusOutlined /></template>
+            {{ locale === 'zh-CN' ? '新增方案' : 'New Profile' }}
+          </a-button>
+        </div>
       </div>
       <div class="preset-container-grid runtime-custom-grid">
         <RuntimeCard
@@ -600,6 +678,62 @@ function openCustomProfileEditor(profile: CustomComposeProfile) {
         </RuntimeCard>
       </div>
     </section>
+
+    <a-modal
+      v-model:open="runtimeImportModalOpen"
+      class="runtime-import-modal"
+      :title="locale === 'zh-CN' ? '导入运行时配置' : 'Import Runtime Config'"
+      :ok-text="locale === 'zh-CN' ? '导入' : 'Import'"
+      :cancel-text="locale === 'zh-CN' ? '取消' : 'Cancel'"
+      :confirm-loading="runtimeImportBusy"
+      :ok-button-props="{ disabled: !runtimeImportFile }"
+      @ok="submitRuntimeImport"
+    >
+      <div class="runtime-import-panel">
+        <div class="runtime-import-ingress">
+          <span class="runtime-import-mark"><ImportOutlined /></span>
+          <div>
+            <strong>{{ locale === 'zh-CN' ? '选择一个运行时导入包' : 'Choose a runtime package' }}</strong>
+            <small>{{ locale === 'zh-CN' ? '支持 Compose YAML，或包含 Compose、Dockerfile、Python / Shell 脚本的 .aistack-runtime.json' : 'Supports Compose YAML or .aistack-runtime.json with Compose, Dockerfile, Python, and shell sources.' }}</small>
+          </div>
+          <input
+            ref="runtimeImportFileInput"
+            class="runtime-import-file-input"
+            type="file"
+            accept=".yml,.yaml,.json,.aistack-runtime.json"
+            @change="selectRuntimeImportFile"
+          />
+          <a-button @click="runtimeImportFileInput?.click()">{{ locale === 'zh-CN' ? '选择文件' : 'Choose File' }}</a-button>
+        </div>
+        <div v-if="runtimeImportFile" class="runtime-import-receipt">
+          <div class="runtime-import-file-meta">
+            <span>{{ locale === 'zh-CN' ? '已选文件' : 'Selected file' }}</span>
+            <strong :title="runtimeImportFile.name">{{ runtimeImportFile.name }}</strong>
+            <small>{{ formatRuntimeImportSize(runtimeImportFile.size) }} · {{ runtimeImportPackageFiles }} {{ locale === 'zh-CN' ? '个落地文件' : 'output files' }}</small>
+          </div>
+          <code v-if="runtimeImportPackageId">{{ runtimeImportPackageId }}</code>
+        </div>
+        <div class="runtime-import-destination">
+          <label>
+            <span>{{ locale === 'zh-CN' ? '导入分类' : 'Destination' }}</span>
+            <a-segmented
+              v-model:value="runtimeImportCategory"
+              :options="[
+                { label: locale === 'zh-CN' ? '共享服务' : 'Shared', value: 'shared' },
+                { label: locale === 'zh-CN' ? '专用方案' : 'Dedicated', value: 'dedicated' }
+              ]"
+            />
+          </label>
+          <label class="runtime-import-overwrite">
+            <span>
+              <strong>{{ locale === 'zh-CN' ? '覆盖已有文件' : 'Overwrite existing files' }}</strong>
+              <small>{{ locale === 'zh-CN' ? '默认关闭，避免替换同名 Compose、Dockerfile 或 Python 脚本。' : 'Off by default to protect existing Compose, Dockerfile, and Python sources.' }}</small>
+            </span>
+            <a-switch v-model:checked="runtimeImportOverwrite" />
+          </label>
+        </div>
+      </div>
+    </a-modal>
 
     <a-modal
       v-model:open="metadataModalOpen"

@@ -6,10 +6,16 @@ export function isLocalRequest(req: IncomingMessage): boolean {
   return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
-/** Detect if request carries Electron's internal token. */
+/** Detect local Electron access or a configured remote administrator token. */
 export function isElectronRequest(req: IncomingMessage): boolean {
-  const token = req.headers["x-ai-stack-electron"] as string | undefined;
-  return token === process.env.ELECTRON_TOKEN || isLocalRequest(req);
+  if (isLocalRequest(req)) return true;
+  const configuredToken = process.env.AI_STACK_ADMIN_TOKEN || process.env.ELECTRON_TOKEN;
+  if (!configuredToken) return false;
+  const headerToken = req.headers["x-ai-stack-admin"];
+  const authorization = req.headers.authorization ?? "";
+  const bearerToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  const providedToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  return providedToken === configuredToken || bearerToken === configuredToken;
 }
 
 /** APIs that require Electron-level privilege (not available to LAN browser). */

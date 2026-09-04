@@ -38,7 +38,7 @@ export function sendJson(
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,authorization",
+    "access-control-allow-headers": "content-type,authorization,x-ai-stack-admin",
     "content-length": Buffer.byteLength(body)
   });
   res.end(body);

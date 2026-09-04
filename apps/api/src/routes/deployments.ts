@@ -5,7 +5,9 @@ import { createDeploymentPlan as buildDeploymentPlan, startDeployment } from "..
 import { compatibilityFor, getModel, listModels } from "../modelRegistry.js";
 import { proxyHttp, parseMaybeJson } from "../httpProxy.js";
 import { runCommand } from "../utils.js";
+import { inspectGpuDevices, resolveGpuDeviceIds, type GpuDeviceInfo } from "../gpuDevices.js";
 import { validateVllmRuntimeArgs } from "../runtimePlan.js";
+
 import type { ModelRecord, ServiceType } from "../types.js";
 
 export function register(
@@ -101,9 +103,14 @@ export function register(
       return sendJson(res, 409, { detail: "openai_model points to a different local model." });
     const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
     if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
-    body.args = validatedArgs.args;
+    const gpuSelection = await validateDeploymentGpuArgs(validatedArgs.args, serviceType);
+    if (gpuSelection.detail) return sendJson(res, 400, { detail: gpuSelection.detail });
+    body.args = gpuSelection.args;
+
     const blocker = deploymentBlocker(model, serviceType, body.start === true);
     if (blocker) return sendJson(res, 409, blocker);
+    const gpuMemoryBlocker = body.start === true ? selectedGpuMemoryBlocker(model, gpuSelection.devices) : null;
+    if (gpuMemoryBlocker) return sendJson(res, 409, gpuMemoryBlocker);
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
     if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
     const containerSettings = getContainerConfig(serviceType);
@@ -126,9 +133,14 @@ export function register(
       return sendJson(res, 409, { detail: "openai_model points to a different local model." });
     const validatedArgs = validateDeploymentRuntimeArgs(body.args ?? {}, serviceType, model.id, body.openai_model ?? model.id);
     if (validatedArgs.detail) return sendJson(res, 400, { detail: validatedArgs.detail });
-    body.args = validatedArgs.args;
+    const gpuSelection = await validateDeploymentGpuArgs(validatedArgs.args, serviceType);
+    if (gpuSelection.detail) return sendJson(res, 400, { detail: gpuSelection.detail });
+    body.args = gpuSelection.args;
+
     const blocker = deploymentBlocker(model, serviceType, true);
     if (blocker) return sendJson(res, 409, blocker);
+    const gpuMemoryBlocker = selectedGpuMemoryBlocker(model, gpuSelection.devices);
+    if (gpuMemoryBlocker) return sendJson(res, 409, gpuMemoryBlocker);
     const deployment = (await dh.configuredDeployments()).find((d: any) => d.service_type === serviceType);
     if (!deployment) return sendJson(res, 400, { detail: "Unknown service type: " + serviceType });
     const containerSettings = getContainerConfig(serviceType);
@@ -203,6 +215,52 @@ function deploymentBlocker(model: ModelRecord, serviceType: ServiceType, blockMe
   return null;
 }
 
+async function validateDeploymentGpuArgs(
+  args: Record<string, unknown>,
+  serviceType: ServiceType
+): Promise<{ args: Record<string, unknown>; devices: GpuDeviceInfo[]; detail?: string }> {
+  if (args.gpu_device_ids === undefined) return { args, devices: [] };
+  try {
+    const inventory = await inspectGpuDevices();
+    if (!inventory.devices.length) return { args, devices: [], detail: inventory.detail || "No NVIDIA GPU is available." };
+    const selection = resolveGpuDeviceIds(args.gpu_device_ids, inventory.devices);
+    const count = selection.ids?.length ?? 0;
+    if (serviceType === "vllm" && Number(args.tensor_parallel_size ?? 1) !== count) {
+      return { args, devices: selection.devices, detail: "tensor_parallel_size must equal the number of selected GPUs." };
+    }
+    if (serviceType === "trtllm") {
+      const workers = Number(args.tp_size ?? 1) * Number(args.pp_size ?? 1);
+      if (workers !== count) return { args, devices: selection.devices, detail: "tp_size × pp_size must equal the number of selected GPUs." };
+    }
+    return { args: { ...args, gpu_device_ids: selection.ids }, devices: selection.devices };
+  } catch (error) {
+    return { args, devices: [], detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function selectedGpuMemoryBlocker(model: ModelRecord, devices: GpuDeviceInfo[]) {
+  if (!devices.length) return null;
+  const requiredBytes = Number(model.audit?.gpu_memory?.required_bytes);
+  if (!Number.isFinite(requiredBytes) || requiredBytes <= 0) return null;
+  const requiredPerGpuMiB = requiredBytes / devices.length / 1024 / 1024;
+  const insufficient = devices.filter((device) =>
+    device.memory_free_mib !== null && Number.isFinite(device.memory_free_mib) && device.memory_free_mib < requiredPerGpuMiB
+  );
+  if (!insufficient.length) return null;
+  return {
+    detail: "The selected GPU set does not have enough free memory per device. Required about "
+      + Math.ceil(requiredPerGpuMiB) + " MiB on each GPU; insufficient: "
+      + insufficient.map((device) => "GPU " + device.index + " (" + Math.floor(device.memory_free_mib ?? 0) + " MiB free)").join(", ") + ".",
+    audit: model.audit,
+    selected_gpus: devices,
+    repair_actions: [
+      { action: "choose_other_gpu", label: "Choose GPUs with more free memory." },
+      { action: "stop_other_runtimes", label: "Stop other GPU runtimes and retry." },
+      { action: "choose_smaller_model", label: "Choose a smaller or quantized model." }
+    ]
+  };
+}
+
 }
 
 export function validateDeploymentRuntimeArgs(
@@ -221,9 +279,13 @@ export function deploymentArgsMatch(
 ): boolean {
   if (!existing) return !requested || Object.keys(requested).length === 0;
   const keys = serviceType === "vllm"
-    ? ["max_model_len", "gpu_memory_utilization", "max_num_seqs", "tensor_parallel_size", "kv_cache_dtype",
-        "enable_auto_tool_choice", "tool_call_parser", "reasoning_parser"]
-    : undefined;
+    ? [
+        "max_model_len", "gpu_memory_utilization", "max_num_seqs", "tensor_parallel_size", "kv_cache_dtype",
+        "gpu_device_ids", "enable_auto_tool_choice", "tool_call_parser", "reasoning_parser"
+      ]
+    : serviceType === "trtllm"
+      ? ["max_batch_size", "max_num_tokens", "kv_cache_free_gpu_memory_fraction", "tp_size", "pp_size", "gpu_device_ids"]
+      : undefined;
   const existingArgs = pickArgs(existing, keys);
   const requestedArgs = pickArgs(requested ?? {}, keys);
   if (serviceType === "vllm") {

@@ -164,19 +164,23 @@ function normalizeDeviceModel(productName?: string, productVersion?: string, boa
 }
 
 async function inspectGpu(): Promise<Record<string, unknown>> {
-  const smi = await runCommand("nvidia-smi", ["--query-gpu=name,utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,driver_version", "--format=csv,noheader,nounits"], 5000);
+  const smi = await runCommand("nvidia-smi", ["--query-gpu=index,uuid,name,utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,driver_version", "--format=csv,noheader,nounits"], 5000);
   if (smi.ok && smi.stdout) {
     return {
       available: true,
       source: "nvidia-smi",
-      devices: smi.stdout.split("\n").filter(Boolean).map((line, index) => {
-        const [name, utilizationGpuPercent, totalMiB, usedMiB, temperatureCelsius, powerDrawWatts, driver] = line.split(",").map((value) => value.trim());
+      devices: smi.stdout.split("\n").filter(Boolean).map((line, fallbackIndex) => {
+        const [indexValue, uuid, name, utilizationGpuPercent, totalMiB, usedMiB, temperatureCelsius, powerDrawWatts, driver] = line.split(",").map((value) => value.trim());
+        const memoryTotal = finiteNumber(totalMiB);
+        const memoryUsed = finiteNumber(usedMiB);
         return {
-          index,
+          index: finiteNumber(indexValue) ?? fallbackIndex,
+          uuid,
           name,
           utilization_gpu_percent: Number(utilizationGpuPercent),
-          memory_total_mib: finiteNumber(totalMiB),
-          memory_used_mib: finiteNumber(usedMiB),
+          memory_total_mib: memoryTotal,
+          memory_used_mib: memoryUsed,
+          memory_free_mib: memoryTotal !== null && memoryUsed !== null ? Math.max(0, memoryTotal - memoryUsed) : null,
           temperature_celsius: finiteNumber(temperatureCelsius),
           power_draw_watts: finiteNumber(powerDrawWatts),
           driver_version: driver

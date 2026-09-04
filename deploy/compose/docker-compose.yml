@@ -7,7 +7,7 @@ services:
     ports:
       - "${AI_STACK_BIND_ADDR:-0.0.0.0}:8000:8000"
     volumes:
-      - ../../models:/models
+      - ${MODELS_ROOT:-../../models}:/models
       - ../../state:/state
       - ../../configs:/configs
       - ../../logs:/logs

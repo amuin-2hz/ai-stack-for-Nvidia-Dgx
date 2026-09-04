@@ -55,10 +55,11 @@ function apiEnv(workspaceRoot: string): NodeJS.ProcessEnv {
     ...process.env,
     PORT: String(API_PORT),
     FRONTEND_PORT: String(FRONTEND_PORT),
-    AI_STACK_BIND_ADDR: "127.0.0.1",
+    AI_STACK_BIND_ADDR: process.env.AI_STACK_BIND_ADDR ?? "0.0.0.0",
+    AI_STACK_SERVE_FRONTEND: isDev ? "0" : "1",
     AI_STACK_BASE: workspaceRoot,
     AI_STACK_DATA_DIR: workspaceRoot,
-    MODELS_ROOT: join(workspaceRoot, "models"),
+    MODELS_ROOT: process.env.MODELS_ROOT ?? join(workspaceRoot, "models"),
     STATE_ROOT: join(workspaceRoot, "state"),
     LOGS_ROOT: join(workspaceRoot, "logs"),
   };
@@ -84,6 +85,15 @@ function startApiServer(): void {
     );
   }
 
+async function apiIsReady(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${API_PORT}/healthz`, { signal: AbortSignal.timeout(1000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
   apiProcess.stdout?.on("data", (d) => console.log(`[API] ${d.toString().trim()}`));
   apiProcess.stderr?.on("data", (d) => console.error(`[API] ${d.toString().trim()}`));
   apiProcess.on("exit", (code) => console.log(`[API] exited with code ${code}`));
@@ -92,7 +102,7 @@ function startApiServer(): void {
 function startFrontendServer(): void {
   if (!isDev) return; // In production, frontend is served as static files
 
-  frontendProcess = spawn("npx", ["vite", "--host", "127.0.0.1", "--port", String(FRONTEND_PORT)], {
+  frontendProcess = spawn("npx", ["vite", "--host", "0.0.0.0", "--port", String(FRONTEND_PORT)], {
     cwd: join(getAppRoot(), "apps", "frontend"),
     env: { ...process.env },
     stdio: "pipe",
@@ -121,9 +131,7 @@ function createWindow(): void {
     mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
     mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
-    mainWindow.loadFile(
-      join(getAppRoot(), "apps", "frontend", "dist", "index.html")
-    );
+    mainWindow.loadURL(`http://localhost:${FRONTEND_PORT}`);
   }
 
   mainWindow.on("closed", () => {

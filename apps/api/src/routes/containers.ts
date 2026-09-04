@@ -7,13 +7,17 @@ import {
   createCustomContainerTask, createImagePullTask, createImageTestTask, createRuntimeStartTestTask, listContainers, imageExists
 } from "../containerManager.js";
 import { createTask as persistTask, deleteDeployment, getNetworkSettings, getSetting, getTask, listActiveDeployments, setContainerConfig, setSetting, updateTask, upsertDeployment } from "../store.js";
+import { canReusePublishedService, runtimeNetworkEnv } from "../runtimeNetwork.js";
 import { createTask, runManagedCommand } from "../taskRunner.js";
 import { listModels } from "../modelRegistry.js";
 import { parseComposeRuntimeDeclaration } from "../composeRuntimeMetadata.js";
+import { parseRuntimeExtensionImport, type RuntimeExtensionCategory } from "../runtimeExtensionPackages.js";
+import { gpuVisibleDevices, inspectGpuDevices, resolveGpuDeviceIds } from "../gpuDevices.js";
 import type { DeploymentSuite } from "../types.js";
 import { runCommand, shellQuote } from "../utils.js";
 
 type CustomComposeProfileMeta = {
+  category: RuntimeExtensionCategory;
   order: number;
   title: string;
   title_zh: string;
@@ -24,6 +28,7 @@ type CustomComposeProfileMeta = {
 
 const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "suitable_models">> = {
   "funasr-gateway": {
+    category: "shared",
     order: 10,
     title: "FunASR Gateway",
     title_zh: "FunASR 语音网关",
@@ -31,6 +36,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "双 FunASR 管线，可选 SenseVoice/Paraformer，并提供语言模型、标点和说话人分离预设。"
   },
   "vibevoice-hf": {
+    category: "shared",
     order: 20,
     title: "VibeVoice HF",
     title_zh: "VibeVoice HF",
@@ -38,6 +44,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "本地 VibeVoice Hugging Face 适配服务运行时。"
   },
   "qwen3-tts": {
+    category: "shared",
     order: 25,
     title: "Qwen3-TTS",
     title_zh: "Qwen3-TTS 专用语音合成",
@@ -45,6 +52,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "由 AI Stack 统一托管 Qwen3-TTS 预置音色、音色设计和参考音频克隆能力。"
   },
   "vllm-embedding": {
+    category: "dedicated",
     order: 30,
     title: "vLLM Embedding",
     title_zh: "vLLM 向量",
@@ -52,6 +60,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "使用 vLLM pooling runner 发布 Qwen3 向量模型。"
   },
   "vllm-reranker": {
+    category: "dedicated",
     order: 40,
     title: "vLLM Reranker",
     title_zh: "vLLM 重排",
@@ -59,6 +68,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "使用 sequence-classification overrides 发布 Qwen3 重排模型。"
   },
   "ocr-unlimited": {
+    category: "dedicated",
     order: 50,
     title: "Unlimited-OCR",
     title_zh: "Unlimited-OCR",
@@ -66,6 +76,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "面向专用 OCR 镜像和依赖的文档识别服务。"
   },
   mineru: {
+    category: "dedicated",
     order: 60,
     title: "MinerU Document Parse",
     title_zh: "MinerU 文档解析",
@@ -73,6 +84,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
     description_zh: "已验证的 MinerU2.5-Pro 图片和 PDF 文档解析服务。"
   },
   "locate-anything": {
+    category: "dedicated",
     order: 70,
     title: "LocateAnything Visual Grounding",
     title_zh: "LocateAnything 视觉定位",
@@ -83,6 +95,7 @@ const customComposeProfileMeta: Record<string, Omit<CustomComposeProfileMeta, "s
 
 function customComposeProfileMetadata(id: string): CustomComposeProfileMeta {
   const fallback = customComposeProfileMeta[id] ?? {
+    category: "dedicated" as const,
     order: 999,
     title: id,
     title_zh: id,
@@ -92,6 +105,7 @@ function customComposeProfileMetadata(id: string): CustomComposeProfileMeta {
   const saved = getSetting("custom_compose_profile:" + id) as Partial<CustomComposeProfileMeta> | undefined;
   return {
     ...fallback,
+    category: saved?.category === "shared" || saved?.category === "dedicated" ? saved.category : fallback.category,
     title: typeof saved?.title === "string" && saved.title.trim() ? saved.title.trim() : fallback.title,
     title_zh: typeof saved?.title_zh === "string" && saved.title_zh.trim() ? saved.title_zh.trim() : fallback.title_zh,
     description: typeof saved?.description === "string" ? saved.description.trim() : fallback.description,
@@ -206,6 +220,14 @@ function safeWorkspaceFile(workspaceRoot: string, relativePath: string, allowedP
     throw new Error("Path must stay under " + relative(workspaceRoot, allowedRoot));
   }
   return target;
+}
+
+function safeRuntimeExtensionFile(workspaceRoot: string, relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, "/").replace(/^\.\//, "");
+  const allowedPrefix = ["deploy/dockerfiles/custom", "deploy/templates", "ops/scripts"]
+    .find((prefix) => normalized === prefix || normalized.startsWith(prefix + "/"));
+  if (!allowedPrefix) throw new Error("Runtime extension file path is not allowed: " + relativePath);
+  return safeWorkspaceFile(workspaceRoot, normalized, allowedPrefix);
 }
 
 function defaultDockerfileContent(_image: string): string {
@@ -457,6 +479,89 @@ export function register(
   });
 
 
+  route("POST", "/containers/custom/profiles/import", async (req: any, res: any) => {
+    try {
+      const body = await readBody<{
+        filename?: string;
+        content_base64?: string;
+        category?: RuntimeExtensionCategory;
+        overwrite?: boolean;
+      }>(req);
+      const filename = basename(String(body.filename ?? "").trim());
+      if (!filename || !/\.(ya?ml|aistack-runtime\.json|json)$/i.test(filename)) {
+        throw new Error("Choose a Compose YAML or .aistack-runtime.json file.");
+      }
+      const encoded = String(body.content_base64 ?? "");
+      if (!encoded || !/^[a-zA-Z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Runtime extension content is missing or invalid.");
+      const requestedCategory = body.category === "shared" || body.category === "dedicated" ? body.category : undefined;
+      const imported = parseRuntimeExtensionImport(filename, Buffer.from(encoded, "base64"), requestedCategory);
+      const id = safeCustomComposeProfileId(imported.id);
+      const profilesDir = join(workspaceRoot, "deploy", "compose", "custom");
+      const composeRelativePath = "deploy/compose/custom/docker-compose." + id + ".yml";
+      const composePath = safeWorkspaceFile(workspaceRoot, composeRelativePath, "deploy/compose/custom");
+      const extensionFiles = imported.files.map((file) => ({
+        ...file,
+        absolutePath: safeRuntimeExtensionFile(workspaceRoot, file.path)
+      }));
+      const allTargets = [{ path: composeRelativePath, absolutePath: composePath }, ...extensionFiles];
+      if (new Set(allTargets.map((file) => file.absolutePath)).size !== allTargets.length) {
+        throw new Error("Runtime extension contains duplicate output paths.");
+      }
+      const conflicts: string[] = [];
+      for (const file of allTargets) {
+        try {
+          await access(file.absolutePath);
+          conflicts.push(file.path);
+        } catch {
+          // The file can be created.
+        }
+      }
+      if (conflicts.length && body.overwrite !== true) {
+        sendJson(res, 409, {
+          ok: false,
+          conflict: true,
+          id,
+          files: conflicts,
+          detail: "Files already exist. Enable overwrite to replace this runtime extension."
+        });
+        return;
+      }
+
+      await mkdir(profilesDir, { recursive: true });
+      for (const file of extensionFiles) {
+        await mkdir(dirname(file.absolutePath), { recursive: true });
+        await writeFile(file.absolutePath, file.content, "utf-8");
+      }
+      await writeFile(composePath, imported.compose, "utf-8");
+      const current = customComposeProfileMetadata(id);
+      const metadata: CustomComposeProfileMeta = {
+        ...current,
+        category: imported.category,
+        title: imported.title,
+        title_zh: imported.title_zh,
+        description: imported.description,
+        description_zh: imported.description_zh,
+        suitable_models: imported.suitable_models
+      };
+      setSetting("custom_compose_profile:" + id, metadata);
+      sendJson(res, 200, {
+        ok: true,
+        id,
+        category: imported.category,
+        replaced: conflicts.length > 0,
+        files: allTargets.map((file) => file.path),
+        profile: {
+          id,
+          file: composeRelativePath,
+          ...metadata,
+          yaml: imported.compose
+        }
+      });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, detail: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   route("GET", "/containers/custom/profiles", async (_req: any, res: any) => {
     const profilesDir = join(workspaceRoot, "deploy", "compose", "custom");
     try {
@@ -498,6 +603,7 @@ export function register(
       const current = customComposeProfileMetadata(id);
       const next: CustomComposeProfileMeta = {
         ...current,
+        category: body.category === "shared" || body.category === "dedicated" ? body.category : current.category,
         title: String(body.title ?? current.title).trim().slice(0, 80) || current.title,
         title_zh: String(body.title_zh ?? body.title ?? current.title_zh).trim().slice(0, 80) || current.title_zh,
         description: String(body.description ?? current.description).trim().slice(0, 500),
@@ -614,7 +720,7 @@ export function register(
 
   route("POST", "/containers/custom/profiles/:id/start", async (req: any, res: any, params: any) => {
     try {
-      const body = await readBody<{ model_id?: string; openai_model?: string }>(req);
+      const body = await readBody<{ model_id?: string; openai_model?: string; gpu_device_ids?: unknown }>(req);
       const id = safeCustomComposeProfileId(decodeURIComponent(params.id));
       const profileMeta = customComposeProfileMetadata(id);
       const profilesDir = join(workspaceRoot, "deploy", "compose", "custom");
@@ -626,8 +732,15 @@ export function register(
       const projectName = "custom_" + id.replace(/-/g, "_");
       const modelId = String(body.model_id ?? "").trim();
       const openaiModel = String(body.openai_model ?? modelId).trim();
+      let gpuDeviceIds: string[] | undefined;
+      if (body.gpu_device_ids !== undefined) {
+        const inventory = await inspectGpuDevices();
+        if (!inventory.devices.length) throw new Error(inventory.detail || "No NVIDIA GPU is available.");
+        gpuDeviceIds = resolveGpuDeviceIds(body.gpu_device_ids, inventory.devices).ids;
+      }
+      const gpuArgs = gpuDeviceIds ? { gpu_device_ids: gpuDeviceIds } : {};
       const runtimeDeclaration = parseComposeRuntimeDeclaration(yaml);
-      const modelCatalog = runtimeDeclaration ? await listModels(join(workspaceRoot, "models")) : [];
+      const modelCatalog = runtimeDeclaration ? await listModels(process.env.MODELS_ROOT ?? join(workspaceRoot, "models")) : [];
       const readyModelIds = new Set(modelCatalog.filter((model) => model.status.download === "ready").map((model) => model.id));
       const missingRequired = runtimeDeclaration?.components.filter((component) => component.required && !readyModelIds.has(component.model_id)) ?? [];
       if (missingRequired.length) throw new Error("Suite is missing required ready models: " + missingRequired.map((item) => item.model_id).join(", "));
@@ -641,13 +754,15 @@ export function register(
       } : undefined;
       if (suite && !suite.components.length) throw new Error("Suite has no ready components to publish.");
       const publicPort = customProfilePublicPort(yaml);
+      const networkEnv = runtimeNetworkEnv(getNetworkSettings());
       const runningState = id === "qwen3-tts"
-        ? await runCommand("docker", ["inspect", "-f", "{{.State.Running}}", name], 5000)
+        ? await runCommand("docker", ["inspect", "-f", '{"running":{{.State.Running}},"ports":{{json .HostConfig.PortBindings}}}', name], 5000)
         : null;
-      const reuseManagedService = runningState?.ok === true && runningState.stdout.trim() === "true";
-      const bindAddress = getNetworkSettings().lan_access_enabled ? "0.0.0.0" : "127.0.0.1";
+      const reuseManagedService = runningState?.ok === true && !gpuDeviceIds
+        && canReusePublishedService(runningState.stdout, publicPort ?? 0, networkEnv.AI_STACK_BIND_ADDR);
       const runtimeEnv = [
-        "AI_STACK_BIND_ADDR=" + shellQuote(bindAddress),
+        ...Object.entries(networkEnv).map(([key, value]) => key + "=" + shellQuote(value)),
+        gpuDeviceIds ? "GPU_VISIBLE_DEVICES=" + shellQuote(gpuVisibleDevices(gpuArgs)) : "",
         modelId ? "MODEL_ALIAS=" + shellQuote(modelId) : "",
         openaiModel ? "OPENAI_MODEL=" + shellQuote(openaiModel) : "",
         id === "vibevoice-hf" && modelId ? "VIBEVOICE_RUNTIME_MODEL=" + shellQuote("/models/" + modelId) : "",
@@ -664,6 +779,7 @@ export function register(
         profile_title_zh: profileMeta.title_zh,
         model_id: modelId || undefined,
         openai_model: openaiModel || undefined,
+        args: gpuArgs,
         name,
         container_name: name,
         image,
@@ -706,6 +822,7 @@ export function register(
               openai_model: deployedModel || suite.components[0].model_id,
               status: "running",
               task_id: task.id,
+              args: gpuArgs,
               updated_at: new Date().toISOString(),
               suite
             });
@@ -730,6 +847,7 @@ export function register(
                 openai_model: published.openaiModel,
                 status: "running",
                 task_id: task.id,
+                args: gpuArgs,
                 updated_at: new Date().toISOString()
               });
             }

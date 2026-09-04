@@ -15,7 +15,11 @@ const arch = debArchByNodeArch[process.arch] ?? process.arch;
 const productName = pkg.build?.productName ?? pkg.productName ?? pkg.name;
 const packageName = pkg.name;
 const outputDir = path.join(repoRoot, pkg.build?.directories?.output ?? "dist-electron");
-const unpackedDir = path.join(outputDir, `linux-${process.arch}-unpacked`);
+const unpackedCandidates = [
+  path.join(outputDir, `linux-${process.arch}-unpacked`),
+  path.join(outputDir, "linux-unpacked"),
+];
+const unpackedDir = unpackedCandidates.find((candidate) => fs.existsSync(candidate));
 const debRoot = path.join(outputDir, "deb-root");
 const appDest = path.join(debRoot, "opt", productName);
 const debPath = path.join(outputDir, `${packageName}_${pkg.version}_${arch}.deb`);
@@ -50,8 +54,8 @@ function normalizePermissions(root) {
   }
 }
 
-if (!fs.existsSync(unpackedDir)) {
-  throw new Error(`Missing Electron output directory: ${unpackedDir}`);
+if (!unpackedDir) {
+  throw new Error(`Missing Electron output directory; checked: ${unpackedCandidates.join(", ")}`);
 }
 
 fs.rmSync(debRoot, { recursive: true, force: true });

@@ -13,9 +13,10 @@ services:
       - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${VIBEVOICE_PUBLIC_PORT:-18000}:8000"
     restart: ${AI_STACK_RESTART_POLICY:-unless-stopped}
     volumes:
-      - ../../../models:/models:ro
+      - ${MODELS_ROOT:-../../../models}:/models:ro
       - ../../../cache:/cache
     environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_VISIBLE_DEVICES:-all}
       - VIBEVOICE_RUNTIME_MODEL=${VIBEVOICE_RUNTIME_MODEL:-/models/vibevoice-asr-hf}
       - VIBEVOICE_MODEL=${VIBEVOICE_MODEL:-vibevoice}
       - VIBEVOICE_DEVICE=${VIBEVOICE_DEVICE:-cuda}

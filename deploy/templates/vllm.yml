@@ -6,10 +6,10 @@ services:
     gpus: all
     ipc: host
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:${VLLM_PORT:-30000}:8000"
+      - "${AI_STACK_BIND_ADDR:-${BIND_ADDR:-0.0.0.0}}:${VLLM_PORT:-30000}:8000"
     restart: ${RESTART_POLICY:-no}
     volumes:
-      - ${MODELS_ROOT:-/home/zhenz/ai-stack/models}:/models:ro
+      - ${MODELS_ROOT:-../../models}:/models:ro
       - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}

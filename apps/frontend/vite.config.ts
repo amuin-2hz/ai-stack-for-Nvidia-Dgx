@@ -20,7 +20,7 @@ const modelListProxy = {
 export default defineConfig({
   plugins: [vue()],
   server: {
-    host: "127.0.0.1",
+    host: "0.0.0.0",
     port: frontendPort,
     proxy: {
       "/api": controlPlaneProxy,

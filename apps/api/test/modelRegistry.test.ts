@@ -266,3 +266,23 @@ test("parseModelSource handles common Hugging Face and ModelScope URLs", () => {
   assert.equal(parseModelSource("https://huggingface.co/PaddlePaddle/Unlimited-OCR.git").repo_id, "PaddlePaddle/Unlimited-OCR");
   assert.equal(parseModelSource("hf://Qwen/Qwen3-Embedding-8B").repo_id, "Qwen/Qwen3-Embedding-8B");
 });
+
+test("listModels marks a compiled FunASR FST language model ready", async () => {
+  const root = join(tmpdir(), "ai-stack-fst-audit-" + Date.now());
+  const modelDir = join(root, "speech_ngram_lm_zh-cn-ai-wesp-fst");
+  await mkdir(modelDir, { recursive: true });
+  try {
+    await writeFile(join(modelDir, "TLG.fst"), "compiled-fst", "utf-8");
+    await writeFile(join(modelDir, "config.yaml"), "type: fst", "utf-8");
+    await writeFile(join(modelDir, "configuration.json"), JSON.stringify({ task: "language-score-prediction" }), "utf-8");
+    await writeFile(join(modelDir, ".download-complete"), "", "utf-8");
+    const models = await listModels(root);
+    assert.equal(models.length, 1);
+    assert.equal(models[0].local.format, "audio");
+    assert.equal(models[0].local.weight_files, 1);
+    assert.equal(models[0].status.download, "ready");
+    assert.equal(models[0].runtime.preferred, "funasr-gateway");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

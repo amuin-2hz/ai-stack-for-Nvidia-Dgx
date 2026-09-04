@@ -24,6 +24,7 @@ test("runtimeCommandFor renders vLLM deployment command and configured env", () 
   assert.match(command.args.join(" "), /"\$VLLM_IMAGE" "\/models\/\$MODEL_ALIAS"/);
   assert.doesNotMatch(command.args.join(" "), /--swap-space/);
 
+
   assert.equal(command.env.VLLM_SWAP_SPACE, undefined);
   assert.match(command.args.join(" "), /__AMUIN_STAGE__:pull:running/);
   assert.match(command.args.join(" "), /__AMUIN_STAGE__:start:running/);
@@ -128,4 +129,22 @@ test("runtime plan preview includes resolved vLLM tool-call flags", async () => 
   assert.match(plan.launch.command, /--tool-call-parser/);
   assert.match(plan.launch.command, /--reasoning-parser/);
   assert.equal(plan.launch.env.VLLM_TOOL_CALL_PARSER, "qwen3_coder");
+});
+
+test("runtimeCommandFor restricts vLLM and TensorRT-LLM to selected GPU UUIDs", () => {
+  const gpuIds = ["GPU-11111111-1111-1111-1111-111111111111", "GPU-22222222-2222-2222-2222-222222222222"];
+  const vllm = runtimeCommandFor("vllm", "qwen", "qwen", { gpu_device_ids: gpuIds, tensor_parallel_size: 2 });
+  assert.equal(vllm.env.GPU_DEVICE_REQUEST, "device=" + gpuIds.join(","));
+  assert.match(vllm.args.join(" "), /--gpus "\$GPU_DEVICE_REQUEST"/);
+
+  const trt = runtimeCommandFor("trtllm", "qwen", "qwen", { gpu_device_ids: [gpuIds[1]], tp_size: 1, pp_size: 1 });
+  assert.equal(trt.env.GPU_DEVICE_REQUEST, "device=" + gpuIds[1]);
+});
+
+test("runtimeCommandFor exposes only selected GPUs to the generic PyTorch service", () => {
+  const command = runtimeCommandFor("pytorch", "audio", "audio", { gpu_device_ids: ["GPU-demo"] });
+  assert.equal(command.env.GPU_VISIBLE_DEVICES, "GPU-demo");
+  assert.equal(command.env.GPU_DEVICE_REQUEST, "device=GPU-demo");
+  assert.match(command.args.join(" "), /docker run -d --name pytorch-service/);
+  assert.match(command.args.join(" "), /--gpus "\$GPU_DEVICE_REQUEST"/);
 });

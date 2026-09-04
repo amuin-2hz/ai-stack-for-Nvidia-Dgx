@@ -5,12 +5,12 @@
                Settings page: left nav + right detail pane (General/Appearance/Developer/Runtime/Network/About).
 -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import {
   locale, t, themeMode, setTheme, setLocale,
   managementPort, workbenchSettings, network, proxySettings, networkMessage,
   readyModels, runningDeployments, activeContainerCount, gpuSummary,
-  system,
+  system, adminToken, setAdminToken,
 } from '../composables/useApp';
 import {
   settingsTab, saveWorkbenchSettings, toggleLanAccess, saveProxySettings,
@@ -26,6 +26,8 @@ const lanAccessUrls = computed(() => {
   return (system.value?.lan_addresses ?? []).map((address) => `http://${address}:${port}`);
 });
 
+const remoteAdminToken = ref(adminToken.value);
+const tokenSaved = ref(false);
 const activeBindAddress = computed(() => network.value?.active_bind_address ?? '0.0.0.0');
 const desiredBindDiffers = computed(() => Boolean(
   network.value?.requires_restart
@@ -62,6 +64,11 @@ const settingsPanelMeta = computed(() => {
 
 function toggleTheme(checked: boolean | string | number) { setTheme(checked ? 'dark' : 'light'); }
 function toggleLocale(checked: boolean | string | number) { setLocale(checked ? 'en-US' : 'zh-CN'); }
+function saveRemoteAdminToken() {
+  setAdminToken(remoteAdminToken.value);
+  tokenSaved.value = true;
+  globalThis.setTimeout(() => { tokenSaved.value = false; }, 2000);
+}
 </script>
 
 <template>
@@ -82,7 +89,7 @@ function toggleLocale(checked: boolean | string | number) { setLocale(checked ? 
         <button :class="['settingsNavButton', settingsTab==='proxy'?'isActive':'']" @click="settingsTab='proxy'"><span class="settingsNavDot"></span>{{ locale==='zh-CN'?'下载代理':'Download Proxy' }}</button>
         <button :class="['settingsNavButton', settingsTab==='about'?'isActive':'']" @click="settingsTab='about'"><span class="settingsNavDot"></span>{{ t('settingsAbout') }}</button>
       </div>
-      <div class="settingsAccountCard"><div class="settingsAccountAvatar">A</div><div><strong>{{ t('workstation') }}</strong><span>v1.1.0</span></div></div>
+      <div class="settingsAccountCard"><div class="settingsAccountAvatar">A</div><div><strong>{{ t('workstation') }}</strong><span>v1.1.1</span></div></div>
     </aside>
 
     <!-- 右侧详情 -->
@@ -130,7 +137,7 @@ function toggleLocale(checked: boolean | string | number) { setLocale(checked ? 
           <div class="settingsSection">
             <h2 class="settingsSectionTitle">{{ locale==='zh-CN'?'API 密钥':'API Keys' }}</h2>
             <div class="settingsList">
-              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'管理 API 密钥':'Manage API Keys' }}</div><div class="settingDesc">{{ locale==='zh-CN'?'生成和撤销用于外部调用的 API 密钥':'Generate and revoke API keys for external access' }}</div></div><div class="settingControl"><a-button :disabled="true">{{ locale==='zh-CN'?'管理密钥':'Manage Keys' }}</a-button></div></div>
+              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'远程管理令牌':'Remote Admin Token' }}</div><div class="settingDesc">{{ locale==='zh-CN'?'从服务器读取令牌并保存到当前浏览器，用于远程修改配置。':'Read the token from the server and save it in this browser for remote configuration.' }}</div></div><div class="settingControl settingInlineGroup"><a-input-password v-model:value="remoteAdminToken" :placeholder="locale==='zh-CN'?'输入管理令牌':'Enter admin token'" style="width:260px" /><a-button type="primary" size="small" @click="saveRemoteAdminToken">{{ tokenSaved ? (locale==='zh-CN'?'已保存':'Saved') : t('saveConfig') }}</a-button></div></div>
             </div>
           </div>
         </section>
@@ -172,7 +179,7 @@ function toggleLocale(checked: boolean | string | number) { setLocale(checked ? 
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">HTTP_PROXY</div><div class="settingDesc">{{ locale==='zh-CN'?'例如 http://127.0.0.1:7890':'For example http://127.0.0.1:7890' }}</div></div><div class="settingControl"><a-input v-model:value="proxyHttp" :disabled="!proxyEnabled" placeholder="http://127.0.0.1:7890" style="width:260px" /></div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">HTTPS_PROXY</div><div class="settingDesc">{{ locale==='zh-CN'?'HTTPS 下载请求使用的代理':'Proxy for HTTPS download requests' }}</div></div><div class="settingControl"><a-input v-model:value="proxyHttps" :disabled="!proxyEnabled" placeholder="http://127.0.0.1:7890" style="width:260px" /></div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">ALL_PROXY</div><div class="settingDesc">{{ locale==='zh-CN'?'可选，支持 socks5:// 或 socks5h://':'Optional; supports socks5:// or socks5h://' }}</div></div><div class="settingControl"><a-input v-model:value="proxyAll" :disabled="!proxyEnabled" placeholder="socks5://127.0.0.1:7890" style="width:260px" /></div></div>
-              <div class="settingRow"><div class="settingMain"><div class="settingLabel">NO_PROXY</div><div class="settingDesc">{{ locale==='zh-CN'?'逗号分隔，不走代理的主机':'Comma-separated hosts that bypass the proxy' }}</div></div><div class="settingControl"><a-input v-model:value="proxyNo" :disabled="!proxyEnabled" placeholder="localhost,127.0.0.1,::1" style="width:260px" /></div></div>
+              <div class="settingRow"><div class="settingMain"><div class="settingLabel">NO_PROXY</div><div class="settingDesc">{{ locale==='zh-CN'?'本机与局域网地址始终直连；此处可追加其他不走代理的主机':'Local and private-network addresses always connect directly; add other bypass hosts here' }}</div></div><div class="settingControl"><a-input v-model:value="proxyNo" :disabled="!proxyEnabled" placeholder="localhost,127.0.0.1,::1,192.168.0.0/16" style="width:260px" /></div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'配置文件':'Config File' }}</div><div class="settingDesc">{{ proxySettings?.env_path ?? 'configs/proxy.env' }}</div></div><div class="settingControl"><a-button type="primary" size="small" @click="saveProxySettings">{{ t('saveConfig') }}</a-button></div></div>
             </div>
             <div v-if="networkMessage" class="settingMessage">{{ networkMessage }}</div>
@@ -184,7 +191,7 @@ function toggleLocale(checked: boolean | string | number) { setLocale(checked ? 
           <div class="settingsSection">
             <h2 class="settingsSectionTitle">{{ locale==='zh-CN'?'关于':'About' }}</h2>
             <div class="settingsList">
-              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'版本':'Version' }}</div></div><div class="settingControl settingValueText">v1.1.0</div></div>
+              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'版本':'Version' }}</div></div><div class="settingControl settingValueText">v1.1.1</div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'构建日期':'Build Date' }}</div></div><div class="settingControl settingValueText">2026.06</div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'许可协议':'License' }}</div></div><div class="settingControl settingValueText">MIT</div></div>
             </div>

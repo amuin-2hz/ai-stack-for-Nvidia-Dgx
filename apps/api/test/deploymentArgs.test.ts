@@ -63,3 +63,48 @@ test("running vLLM container flags restore tool-call deployment arguments", () =
     enable_auto_tool_choice: false
   });
 });
+
+test("deployment arguments match independently of object key order", () => {
+  assert.equal(
+    deploymentArgsMatch(
+      { max_model_len: 4096, gpu_memory_utilization: 0.75, nested: { a: 1, b: 2 } },
+      { nested: { b: 2, a: 1 }, gpu_memory_utilization: 0.75, max_model_len: 4096 }
+    ),
+    true
+  );
+});
+
+test("deployment arguments detect changed runtime and GPU settings", () => {
+  assert.equal(
+    deploymentArgsMatch(
+      { max_model_len: 4096, gpu_memory_utilization: 0.15, gpu_device_ids: ["GPU-a"] },
+      { max_model_len: 4096, gpu_memory_utilization: 0.75, gpu_device_ids: ["GPU-a"] },
+      "vllm"
+    ),
+    false
+  );
+  assert.equal(
+    deploymentArgsMatch(
+      { tensor_parallel_size: 1, gpu_device_ids: ["GPU-a"] },
+      { tensor_parallel_size: 1, gpu_device_ids: ["GPU-b"] },
+      "vllm"
+    ),
+    false
+  );
+});
+
+test("vLLM argument comparison ignores fields used only by other runtimes", () => {
+  assert.equal(
+    deploymentArgsMatch(
+      { max_model_len: 4096, enable_auto_tool_choice: false },
+      { max_model_len: 4096, enable_auto_tool_choice: false, max_batch_size: 8 },
+      "vllm"
+    ),
+    true
+  );
+});
+
+test("legacy deployments without saved arguments require reconfiguration", () => {
+  assert.equal(deploymentArgsMatch(undefined, { gpu_memory_utilization: 0.75 }, "vllm"), false);
+  assert.equal(deploymentArgsMatch(undefined, undefined, "vllm"), true);
+});

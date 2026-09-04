@@ -20,7 +20,7 @@ services:
       - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${VLLM_PUBLIC_PORT:-30000}:8000"
     restart: ${AI_STACK_RESTART_POLICY:-no}
     volumes:
-      - ../../models/${MODEL_ALIAS:-local_model}:/models/${MODEL_ALIAS:-local_model}:ro
+      - ${MODELS_ROOT:-../../models}/${MODEL_ALIAS:-local_model}:/models/${MODEL_ALIAS:-local_model}:ro
       - ../../cache/hf:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}

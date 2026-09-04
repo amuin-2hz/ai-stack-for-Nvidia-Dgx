@@ -56,6 +56,15 @@ interface ProxySettings {
 
 type ProxyScope = "all" | "huggingface" | "modelscope";
 
+const LOCAL_NO_PROXY_ENTRIES = [
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16"
+];
+
 function proxyEnvPath(workspaceRoot: string): string {
   return join(workspaceRoot, "configs", "proxy.env");
 }
@@ -66,7 +75,7 @@ async function getProxySettings(workspaceRoot: string): Promise<ProxySettings> {
   const httpProxy = values.HTTP_PROXY || values.http_proxy || "";
   const httpsProxy = values.HTTPS_PROXY || values.https_proxy || "";
   const allProxy = values.ALL_PROXY || values.all_proxy || "";
-  const noProxy = values.NO_PROXY || values.no_proxy || "";
+  const noProxy = normalizeNoProxy(values.NO_PROXY || values.no_proxy || "");
   return {
     enabled: Boolean(httpProxy || httpsProxy || allProxy),
     scope: normalizeProxyScope(values.AI_STACK_PROXY_SCOPE || values.ai_stack_proxy_scope, "all"),
@@ -124,10 +133,17 @@ function normalizeProxyUrl(value: unknown): string {
   return text;
 }
 
-function normalizeNoProxy(value: unknown): string {
+export function normalizeNoProxy(value: unknown): string {
   const text = String(value ?? "").trim();
   if (/\n|\r/.test(text)) throw new Error("NO_PROXY must be a comma-separated single line.");
-  return text;
+  const entries: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...text.split(",").map((item) => item.trim()).filter(Boolean), ...LOCAL_NO_PROXY_ENTRIES]) {
+    if (seen.has(entry.toLowerCase())) continue;
+    entries.push(entry);
+    seen.add(entry.toLowerCase());
+  }
+  return entries.join(",");
 }
 
 function normalizeProxyScope(value: unknown, fallback?: ProxyScope): ProxyScope {

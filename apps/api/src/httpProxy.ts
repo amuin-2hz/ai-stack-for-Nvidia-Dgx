@@ -52,8 +52,12 @@ export function proxyWebSocket(
   const upstream = new WebSocket(target);
   wss.handleUpgrade(req, socket, head, (downstream) => {
     upstream.on("open", () => {
-      downstream.on("message", (message) => upstream.send(message));
-      upstream.on("message", (message) => downstream.send(message));
+      downstream.on("message", (message, isBinary) =>
+        upstream.send(message, { binary: isBinary })
+      );
+      upstream.on("message", (message, isBinary) =>
+        downstream.send(message, { binary: isBinary })
+      );
       downstream.on("close", () => upstream.close());
       upstream.on("close", () => downstream.close());
     });

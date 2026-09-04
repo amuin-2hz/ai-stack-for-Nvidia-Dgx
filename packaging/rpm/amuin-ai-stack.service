@@ -1,0 +1,15 @@
+[Unit]
+Description=AMUIN AI STACK web management server
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sysconfig/amuin-ai-stack
+ExecStart=/usr/bin/amuin-ai-stack-server
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

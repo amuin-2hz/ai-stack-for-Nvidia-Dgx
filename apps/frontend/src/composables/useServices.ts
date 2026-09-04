@@ -10,6 +10,7 @@ import type { ContainerRecord, DeploymentSuite } from '../types';
 export type CustomComposeProfile = {
   id: string;
   file: string;
+  category?: 'shared' | 'dedicated';
   order: number;
   title: string;
   title_zh: string;
@@ -78,6 +79,49 @@ export async function loadCustomComposeProfiles(force = false) {
   }
 }
 
+export type RuntimeExtensionCategory = 'shared' | 'dedicated';
+
+export type RuntimeExtensionImportResult = {
+  ok: boolean;
+  id: string;
+  category: RuntimeExtensionCategory;
+  replaced: boolean;
+  files: string[];
+  profile: CustomComposeProfile;
+};
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+export async function importRuntimeExtension(
+  file: File,
+  category: RuntimeExtensionCategory,
+  overwrite = false
+): Promise<RuntimeExtensionImportResult> {
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error(locale.value === 'zh-CN' ? '导入包不能超过 8 MiB。' : 'The import package cannot exceed 8 MiB.');
+  }
+  const result = await api<RuntimeExtensionImportResult>('/containers/custom/profiles/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filename: file.name,
+      content_base64: await fileToBase64(file),
+      category,
+      overwrite
+    })
+  });
+  await loadCustomComposeProfiles(true);
+  return result;
+}
+
 export function selectCustomComposeProfile(profile: CustomComposeProfile) {
   customName.value = profile.id;
   composeYaml.value = profile.yaml;
@@ -104,7 +148,7 @@ export async function saveCustomProfileDockerfile(profile: CustomComposeProfile,
 
 export async function saveCustomComposeProfileMetadata(
   profile: CustomComposeProfile,
-  metadata: { title?: string; title_zh?: string; description?: string; description_zh?: string; suitable_models?: string[]; yaml?: string }
+  metadata: { category?: RuntimeExtensionCategory; title?: string; title_zh?: string; description?: string; description_zh?: string; suitable_models?: string[]; yaml?: string }
 ) {
   const result = await api<CustomComposeProfile & { ok: boolean; detail?: string }>(
     "/containers/custom/profiles/" + encodeURIComponent(profile.id),

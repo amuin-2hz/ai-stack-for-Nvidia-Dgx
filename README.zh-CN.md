@@ -1,218 +1,197 @@
 # AMUIN AI STACK
 
-AMUIN AI STACK 是面向 DGX Spark 与 NVIDIA GPU 工作站的本地 AI 模型运维工作台。它提供 Electron 桌面控制台和 Vue 3 Web 控制台，用于检查本地模型文件、下载 Hugging Face / ModelScope 仓库、准备运行时容器、启动模型服务，并通过本机 Node.js 控制面暴露 OpenAI 兼容接口。
+[English](README.md) | 简体中文
 
-当前项目以 Linux .deb 桌面应用作为主要分发形态。源码可以发布到 GitHub；package.json 中的 private: true 只是用于避免误发布到 npm registry。
+AMUIN AI STACK 是一款主要面向 **NVIDIA DGX Spark 及其他 GB10 ARM64 平台**的本地模型图形化部署与运维工具。它把模型下载、兼容性检查、Docker 运行时创建、发布、API 测试、GPU 监控、日志和维护整合为适合个人 AI 工作站的桌面端与 Web 操作流程。
 
-## 当前状态
+[NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) 采用 GB10 Grace Blackwell Superchip、20 核 ARM64 CPU 和 128 GB CPU/GPU 一致性统一内存。NVIDIA 将其定位为桌面端本地 AI 开发、推理与微调平台，FP4 AI 算力最高可达 1 PFLOP；其 [DGX OS 软件栈](https://docs.nvidia.com/dgx/dgx-spark/system-overview.html) 已集成 CUDA、Docker 和 NVIDIA Container Runtime。AMUIN AI STACK 正是围绕这一环境设计：应用原生运行在 ARM64 上，具体模型推理则隔离在可访问 GPU 的 Docker 容器中。
 
-当前已经实现：
+本项目不是 NVIDIA 官方产品，与 NVIDIA 不存在隶属关系。
 
-- Electron 桌面壳和打包应用启动流程。
-- Vue 3 + Vite 管理控制台，覆盖仪表盘、模型库、运行时服务、模型发布、模型测试、任务和设置。
-- 监听 8000 端口的 Node.js / TypeScript 后端 API。
-- 本地模型审计：Hugging Face checkpoint、TensorRT-LLM engine、GGUF 文件、音频模型目录。
-- Hugging Face / ModelScope 下载计划和可跟踪的后台下载任务。
-- vLLM、TensorRT-LLM、通用 PyTorch 三类默认运行时槽位的计划生成和部署任务。
-- 容器生命周期控制、镜像拉取/测试任务、日志和修复动作。
-- 面向运行中文本/向量模型的 OpenAI 兼容 HTTP 代理接口。
-- 通用 PyTorch 环境模板，提供健康检查、运行时信息和模型目录枚举。
-- 第三方资源说明文件 THIRD_PARTY_NOTICES.md。
+## 已支持的部署场景
 
-当前还没有作为内置服务落地：
+### 三个基础运行环境
 
-- TTS 语音合成服务。系统会识别和分类 TTS / CosyVoice 模型，但还没有生产可用的 TTS REST 或 WebSocket 合成接口。
-- GGUF 内置服务。GGUF 会被识别为本地资产，但 AMUIN 内置运行时不会直接服务 GGUF；请使用 LM Studio、Ollama 或 llama.cpp 等外部工具。
-- 生产级多节点/多集群调度、RBAC、配额或 Kubernetes 编排。
+它们是通用模型发布或构建模型专用服务的基础：
 
-## 运行端口与接口
-
-默认端口：
-
-| 组件 | 默认端口 | 说明 |
-|---|---:|---|
-| 后端 API | 8000 | Node.js 控制面；提供管理 API 和 /v1 OpenAI 兼容代理接口。 |
-| Web 开发控制台 | 8888 | 仅 Vite 开发/Web 模式使用。打包后的 Electron 应用从本地静态文件加载前端。 |
-| vLLM 运行时 | 30000 | vLLM 模型运行后在 /v1 提供 OpenAI 兼容服务。 |
-| TensorRT-LLM 运行时 | 31000 | TensorRT-LLM 模型运行后在 /v1 提供 OpenAI 兼容服务。 |
-| PyTorch 运行时 | 32000 | 通用 PyTorch 环境，提供 /healthz、/runtime 和 /models；Audio/FunASR 作为后续自定义业务容器创建。 |
-
-后端 API 包含：
-
-| 路由 | 用途 |
-|---|---|
-| GET /healthz | API 健康检查。 |
-| GET /system/check | 主机、GPU、Docker、网络和工作台状态。 |
-| GET /models | 本地模型 registry 与审计结果。 |
-| POST /models/import | 将 Hugging Face / ModelScope URL 解析为下载计划。 |
-| POST /downloads | 启动可跟踪的模型下载任务。 |
-| GET /tasks 和 GET /tasks/:id/logs | 任务列表和任务日志。 |
-| GET /containers | 运行时容器列表。 |
-| POST /containers/:key/pull-image | 拉取运行时镜像。 |
-| POST /containers/:key/start-test | 启动运行时容器测试。 |
-| GET /deployments | 已配置和运行中的服务槽位。 |
-| POST /deployments/start | 启动模型部署任务。 |
-| GET /deployments/:id/logs | 运行时容器日志，Docker 不可用时回退到任务日志。 |
-| POST /deployments/:id/stop | 停止并移除运行时容器。 |
-| POST /deployments/:id/restart | 重启运行时容器。 |
-| GET :8888/models 或 GET :8888/v1/models | 运行中模型目录；每项返回该模型运行时的直连接口、接口类型、路径和发布端口。 |
-| 模型推理接口 | 直接调用模型目录返回的 `endpoint`；推理请求仍访问各模型运行时自己的发布端口。 |
-| POST /v1/chat/completions | 后端 OpenAI 兼容聊天代理。 |
-| POST /v1/embeddings | 后端 OpenAI 兼容向量代理。 |
-| GET /audio/models | 历史音频代理入口；后续应指向自定义 Audio/FunASR 服务，不再等同默认 PyTorch 容器。 |
-
-音频 WebSocket 路由：
-
-| 路由 | 状态 |
-|---|---|
-| ws://127.0.0.1:32000/v1/realtime | 默认 PyTorch 容器不再提供该 ASR WebSocket；需要由自定义 Audio 容器实现。 |
-| ws://127.0.0.1:32000/ws/realtime | 历史兼容路径；默认 PyTorch 容器不再实现。 |
-| ws://127.0.0.1:8000/ws/audio/... | 后端音频代理入口；目标应配置为自定义 Audio 服务。 |
-
-## 发布包
-
-发布包是 .deb 桌面应用。包内包含：
-
-- Electron 桌面壳和前端构建产物。
-- Node.js 后端 API 构建产物及其 npm 运行依赖。
-- 运行时模板、Docker Compose 模板、辅助 Dockerfile 和运维脚本。
-- 下载、部署、TensorRT-LLM 启动、健康检查和诊断脚本。
-
-打包模式下，应用会在 Electron user-data 目录下创建并使用可写工作区：
-
-~~~text
-~/.config/AMUIN AI STACK/workspace/
-├── models/     # 模型文件
-├── cache/      # Hugging Face / ModelScope 缓存
-├── state/      # 任务状态和临时 compose 项目
-├── logs/       # 下载、部署、容器任务日志
-├── tmp/        # 临时文件
-├── configs/    # 首次启动复制的默认配置
-├── deploy/     # 启动时同步的 compose/template 资源
-└── ops/        # 启动时同步的运维脚本
-~~~
-
-后端数据库默认位于：
-
-~~~text
-~/.local/share/ai-stack/data.db
-~~~
-
-开发模式下，默认使用仓库根目录作为 AI_STACK_BASE。
-
-## 目标机器依赖
-
-DGX Spark 和类似 NVIDIA GPU 工作站通常已经具备 GPU 驱动栈，但正式测试模型服务前仍建议确认：
-
-| 依赖 | 用途 | 检查命令 |
+| 运行环境 | 主要用途 | 当前边界 |
 |---|---|---|
-| Docker Engine | 拉取、构建、运行模型容器 | docker version |
-| Docker Compose v2 | 渲染和启动 compose 模板 | docker compose version |
-| NVIDIA Driver | GPU 可见性和 nvidia-smi | nvidia-smi |
-| NVIDIA Container Toolkit | 让 Docker 容器使用 GPU | docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi |
-| Docker socket 权限 | 允许 AMUIN 管理容器 | docker ps |
-| 网络或预置镜像 | 运行时镜像拉取和模型下载 | docker pull vllm/vllm-openai:latest |
+| **vLLM** | LLM/VLM 推理及 OpenAI 兼容 API | 当前主要的通用推理路径。支持上下文、GPU 分配、量化相关运行参数，以及可选的 Tool Call 参数和解析器。 |
+| **TensorRT-LLM** | NVIDIA 优化推理 | 已提供运行时与发布计划集成。仍需用户准备兼容 checkpoint 或已构建 engine、匹配的镜像，并完成模型所需的转换。 |
+| **PyTorch** | 通用 CUDA/PyTorch 环境 | 用于构建自定义推理服务，或承载无法直接交给 vLLM 的模型；它本身不是万能模型服务器。 |
 
-生成的 deb 会声明 Docker、Compose、NVIDIA Container Toolkit 和 Electron GUI 运行库依赖。如果目标机没有 Docker/NVIDIA apt 源，请先按机器厂商、NVIDIA 或 Docker 官方说明完成底层运行环境安装。
+### 进阶能力 Profile
 
-## 构建与运行
+- **vLLM Embedding**：独立的 OpenAI 兼容向量服务。
+- **vLLM Reranker**：独立的相关性评分和重排服务。
+- **支持工具调用的 vLLM**：发布时可开启/关闭 Tool Call，并为 Qwen3 等兼容模型选择解析器。
+- **OpenAI 兼容 ASR 网关**：使用标准 `/v1/audio/transcriptions` 接口，通过参数选择不同识别管线。
 
-安装依赖并构建全部模块：
+### 套件与模型专用运行时
 
-~~~bash
-npm install
-npm run build
-~~~
+- **FunASR / SenseVoice**：ASR、VAD、标点、可选说话人处理，以及增强 n-gram 管线。
+- **Qwen3-TTS**：CustomVoice、VoiceDesign、Base 声音克隆，并支持多种流式输出格式。
+- **VibeVoice**：Hugging Face 适配器专用 Profile；已完成集成，等待新一轮 DGX Spark 端到端验收。
+- **Unlimited-OCR**：图片文字识别与坐标输出。
+- **MinerU 2.5 Pro**：图片/PDF 内容提取和面向 Markdown 的文档解析。
+- **LocateAnything**：图片目标定位、框和点输出。ARM64 Profile 当前仅开放图片能力，使用前还需确认模型许可证适用于目标场景。
 
-打包 .deb：
+## DGX Spark 实机验证矩阵
 
-~~~bash
-npm run pack
-~~~
+只有真实模型在 NVIDIA GB10/DGX Spark 主机完成加载，并返回可用推理结果后，才会在这里标记为**已验证**；仅镜像构建成功或健康接口正常不算通过。后续每增加一组针对性模型/运行时验收，都会继续更新此表。
 
-也可以使用发布脚本：
+| 场景 | 实测模型/Profile | GB10 实测结果 |
+|---|---|---|
+| vLLM 通用大模型 | OmniCoder-9B | OpenAI Chat 请求返回 HTTP 200，生成代码通过沙箱断言。 |
+| 结构化 Tool Call | Qwen3.8 27B NVFP4 + vLLM | 返回结构化 `tool_calls` 和 `finish_reason: "tool_calls"`；发布页开关 Tool Call 的启动参数已验证。 |
+| 文本向量 | Qwen3-Embedding-8B | HTTP 200，返回两组 4096 维向量。 |
+| 文本重排 | Qwen3-Reranker-8B | HTTP 200，相关与无关文本的排序结果正确。 |
+| 语音识别 | FunASR Gateway | 四个管线均通过 `/v1/audio/transcriptions` 返回 HTTP 200。 |
+| 语音合成 | Qwen3-TTS CustomVoice / VoiceDesign / Base | 已生成非流式 WAV，以及流式 PCM/AAC/Opus/MP3 输出。 |
+| OCR | Unlimited-OCR | HTTP 200，返回预期文字和检测坐标。 |
+| 文档解析 | MinerU 2.5 Pro | HTTP 200，将预期发票字段解析为 Markdown。 |
+| 图片目标定位 | LocateAnything-3B | HTTP 200，在图片模式下定位到预期目标区域。 |
 
-~~~bash
-bash scripts/build-deb.sh
-~~~
+TensorRT-LLM 与 VibeVoice 已提供集成，但在最新端到端 DGX Spark 验收完成前，不列入已验证模型场景。
 
-生成的 .deb 会输出到 dist-electron/。
+## 当前版本提供的功能
 
-开发启动命令：
+`1.1.2` 面向可信任的个人工作站提供 ARM64 应用和完整部署流程：
 
-~~~bash
-npm run dev          # 自动选择 Electron 或 Web 模式
-npm run dev:web      # 仅启动 API + Vite，适合 SSH 环境
-npm run dev:electron # 强制 Electron
-npm run dev:xvfb     # 在 Xvfb 中运行 Electron
-~~~
+- 中英文 Electron 桌面应用，以及可通过局域网访问的 Web 控制台。
+- GPU、CPU、内存、存储、Docker 容器、端口、任务、健康状态和日志查看。
+- 模型发现、本地存储管理，以及 Hugging Face/ModelScope 下载计划。
+- 模型文件审计、未完整下载识别、运行时推荐和发布前检查。
+- 运行时创建、启停、重启、健康检查、修复、清理和启动参数持久化。
+- OpenAI 兼容的 Chat、Embedding、音频转写接口，以及各类任务专用 API。
+- 模型发布前可开启/关闭 vLLM Tool Call，并选择解析器。
+- 四个可选 ASR 管线：`pipeline:general`、`pipeline:accurate-zh`、`pipeline:domain-zh`、`pipeline:meeting`。
+- 原生 ARM64 DEB 与 aarch64 RPM 安装包。
 
-Web 开发模式下，控制台地址是 http://127.0.0.1:8888，并将 /api/* 代理到 http://127.0.0.1:8000 后端 API。
+## 技术栈
 
-## 运行架构
-
-~~~text
-Electron 桌面应用或 Vite Web 控制台
-        -> 后端 API (:8000)
-        -> Docker / NVIDIA runtime
-          ├── vLLM service (:30000)
-          ├── TensorRT-LLM service (:31000)
-          └── PyTorch environment (:32000)
-~~~
-
-后端控制面负责模型审计、下载任务、运行时计划、部署任务、日志、健康检查和 OpenAI 兼容代理路由。
-
-## 典型工作流
-
-1. 导入 Hugging Face 或 ModelScope 模型 URL。
-2. 查看下载计划和预计运行时兼容性。
-3. 以后台任务下载模型文件。
-4. 审计本地模型文件、格式、能力和显存适配情况。
-5. 拉取或测试目标运行时镜像。
-6. 将模型部署到选定运行时槽位。
-7. 通过后端 /v1 代理或运行时服务端口调用模型。
-8. 失败时查看任务日志、部署日志、健康检查和修复动作。
-
-## 运行时兼容性
-
-| 模型 / 格式 | vLLM | TensorRT-LLM | PyTorch | 说明 |
-|---|---|---|---|---|
-| Hugging Face safetensors / bin checkpoint | 支持，取决于 vLLM 是否支持该架构 | 可能支持，取决于架构和版本 | 不支持 | 需要 config、tokenizer 和完整权重分片。 |
-| TensorRT-LLM engine | 不支持 | 支持 | 不支持 | 使用 TensorRT-LLM 服务槽位。 |
-| GGUF 单文件 | 不支持 | 不支持 | 不支持 | 只识别为本地资产；请使用 LM Studio/Ollama/llama.cpp 外部服务。 |
-| Whisper / FunASR 风格 ASR 目录 | 不支持 | 不支持 | 需要自定义 Audio/FunASR 容器 | 默认 PyTorch 只是通用环境，不直接提供 ASR。 |
-| CosyVoice / TTS 风格目录 | 不支持 | 不支持 | 需要自定义 Audio/TTS 容器 | TTS 服务尚未实现。 |
-
-## 仓库结构
-
-| 路径 | 用途 |
+| 层级 | 技术 |
 |---|---|
-| apps/main/ | Electron main process 和打包应用工作区初始化。 |
-| apps/api/ | Node.js / TypeScript 后端控制面。 |
-| apps/frontend/ | Vue 3 + Vite 管理控制台。 |
-| configs/ | 模型清单、运行时 profile、驻留/代理配置。 |
-| deploy/compose/ | Docker Compose 定义和运行时 overlay。 |
-| deploy/templates/ | 运行时模板，包括通用 PyTorch 环境模板。 |
-| deploy/dockerfiles/ | 下载/运行时辅助 Dockerfile。 |
-| ops/scripts/ | 下载、TensorRT-LLM、健康检查和诊断脚本。 |
-| scripts/ | 开发和打包辅助脚本。 |
-| docs/ | 设计说明、迁移说明和原型。 |
-| THIRD_PARTY_NOTICES.md | 第三方依赖和上游 notices 摘要。 |
+| 桌面端 | Electron 33、TypeScript |
+| 前端 | Vue 3、Vite、Ant Design Vue |
+| 控制面 | Node.js、TypeScript、SQLite（`better-sqlite3`） |
+| 运行时编排 | Docker Engine、Docker Compose、NVIDIA Container Toolkit |
+| 模型推理 | vLLM、TensorRT-LLM、NVIDIA PyTorch 容器及模型专用 Python/FastAPI 类服务 |
+| 安装包 | electron-builder、DEB、RPM |
 
-## 开源发布注意事项
+控制面负责保存本地状态、生成运行计划、调用 Docker、执行健康检查并提供前端/API。模型推理留在独立容器中，避免不同模型的依赖污染桌面应用本身。
 
-发布公开 GitHub 仓库前：
+## 依赖要求——Docker 是必要条件
 
-- 不要提交模型权重、缓存、日志、运行状态或 Electron 打包产物。
-- models/、cache/、logs/、state/、volumes/、dist-electron/、.cache/、.npm-cache/ 应保持在 git 之外。
-- 已带上游 SPDX notices 的文件应保留 notices。
-- 增加依赖、vendor 代码片段、运行时镜像或模型模板时，同步检查 THIRD_PARTY_NOTICES.md。
-- 模型许可证独立于 AMUIN 源码许可证；用户需要遵守每个下载模型自己的许可证。
+AMUIN AI STACK **不会**把所有 CUDA 推理环境打进桌面安装包。模型服务需要拉取或构建 Docker 镜像，因此发布模型前必须具备：
 
-## 常见问题
+- 官方 `v1.1.2` 安装包要求 ARM64 Linux。
+- NVIDIA GPU 驱动及可用的 CUDA 主机环境。
+- Docker Engine 和 Docker Compose 插件（`docker compose`）。
+- 已为 Docker 配置 NVIDIA Container Toolkit，容器可以访问 GPU。
+- 足够的磁盘空间，用于模型权重、镜像层、构建缓存和生成结果。
+- 能访问实际使用的镜像仓库和模型源，例如 Docker Hub、NVIDIA NGC、Hugging Face 或 ModelScope。
 
-- docker ps 权限失败：把当前用户加入 docker 组后重新登录。
-- 容器看不到 GPU：检查 NVIDIA 驱动、nvidia-smi 和 nvidia-container-toolkit。
-- 运行时镜像拉取慢或不可用：可预先 docker pull、docker save、docker load。
-- 下载失败：检查代理、DNS、Hugging Face / ModelScope 可达性，以及 configs/proxy.env。
-- 端口冲突：默认端口是 8000、8888、30000、31000、32000；释放冲突端口或调整运行时设置。
+根据 [NVIDIA 官方容器运行时文档](https://docs.nvidia.com/dgx/dgx-spark/nvidia-container-runtime-for-docker.html)，DGX Spark 默认已经预装并配置 Docker 与 NVIDIA Container Toolkit。安装模型前仍建议先验证：
+
+```bash
+docker --version
+docker compose version
+nvidia-ctk --version
+docker run --rm --gpus all nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04 nvidia-smi
+```
+
+应用必须有权访问 Docker daemon。可以使用具备相应权限的账户运行，或将用户加入 `docker` 组：
+
+```bash
+sudo usermod -aG docker "$USER"
+newgrp docker
+```
+
+`docker` 组权限在主机上基本等同 root，只应授予可信用户。
+
+## 在 DGX Spark / ARM64 上安装
+
+从仓库的 `v1.1.2` Release 页面下载安装包：
+
+```bash
+# DGX OS / Ubuntu / Debian
+sudo apt install ./amuin-ai-stack_1.1.2_arm64.deb
+
+# ARM64 RPM 系发行版
+sudo dnf install ./amuin-ai-stack-1.1.2-1.aarch64.rpm
+```
+
+从系统应用菜单启动，或执行：
+
+```bash
+amuin-ai-stack
+```
+
+RPM 还会安装 systemd 服务，可作为 Web 服务运行：
+
+```bash
+sudo systemctl enable --now amuin-ai-stack
+sudo systemctl status amuin-ai-stack
+```
+
+Web 控制台默认地址为 `http://<主机IP>:8888`，控制面 API 默认使用 `8000` 端口。RPM 服务环境变量位于 `/etc/sysconfig/amuin-ai-stack`。
+
+## 基本使用方法
+
+1. 使用上面的命令确认 Docker 和容器 GPU 访问正常。
+2. 打开 AMUIN AI STACK，设置模型与缓存存储目录。
+3. 如果主机需要代理，配置代理和镜像仓库访问方式。
+4. 导入 Hugging Face/ModelScope 仓库，或者扫描已有本地模型目录。
+5. 查看模型完整性和兼容性评估。
+6. 选择基础或专用运行时，配置端口、GPU、上下文及模型专用选项。
+7. 发布模型，等待镜像、容器、模型加载和健康检查全部完成。
+8. 在模型测试页或 OpenAI 兼容客户端中调用接口。
+
+ASR 调用示例：
+
+```bash
+curl --noproxy "*" --http1.1 -H "Expect:" \
+  --max-time 300 \
+  "http://<主机IP>:8011/v1/audio/transcriptions" \
+  -F "file=@/绝对路径/test.wav" \
+  -F "model=pipeline:general" \
+  -F "language=zh" \
+  -F "response_format=json"
+```
+
+接口返回普通 JSON，例如 `{"text":"..."}`，不是流式接口。
+
+## x86 NVIDIA 显卡与项目边界
+
+控制面、界面和容器化架构理论上同样适用于使用 NVIDIA 显卡的普通 **x86_64 Linux 工作站**，前提是所选 Docker 镜像、驱动、CUDA、模型和量化方式兼容。但目前官方安装包和场景验收仍以 DGX Spark/GB10 ARM64 为主；在发布专用 x86_64 安装包并逐模型验证前，x86_64 应视为源码部署和兼容性尝试范围，而不是当前正式承诺。
+
+AMUIN AI STACK 主要服务于可信任的**个人单机环境**，不是多租户调度器、分布式推理控制面或企业 GPU 集群管理器。如果需要多节点组网、GPU 池化、分布式调度、配额和组织级治理，建议选择 [GPUStack](https://gpustack.ai/) 或其他面向集群的方案。
+
+将服务开放到可信局域网之外前，请自行检查凭据、防火墙、Docker 权限、模型许可证和模型远程代码要求。
+
+## 源码开发
+
+建议使用 Node.js 20 或更高版本：
+
+```bash
+npm install
+npm run dev
+```
+
+验证命令：
+
+```bash
+npm test
+npm run build
+```
+
+主要组件位于 `apps/frontend`、`apps/api` 和 `apps/main`；运行时定义位于 `deploy` 与 `configs`；打包代码位于 `scripts` 与 `packaging`。
+
+## 致谢
+
+AMUIN AI STACK 的界面布局和大量交互方式借鉴并受到 [LM Studio](https://lmstudio.ai/) 的启发。感谢 LM Studio 团队为易用的本地 AI 软件树立了优秀范例。AMUIN AI STACK 是独立项目，与 LM Studio 不存在隶属、合作或背书关系。
+
+## 许可证
+
+参见 [LICENSE](LICENSE)。

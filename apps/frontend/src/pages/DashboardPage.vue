@@ -7,8 +7,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { message } from 'ant-design-vue';
-import { ClearOutlined, DownloadOutlined } from '@ant-design/icons-vue';
-import type { TaskRecord } from '../types';
+import { ClearOutlined, DownloadOutlined, MoreOutlined } from '@ant-design/icons-vue';
+import type { GpuDeviceInfo, TaskRecord } from '../types';
 import {
   locale, t, api, refresh, view, system, readyModels, servingModelCount, activeContainerCount,
   gpuSummary, gpuPercent, cpuPercent, memoryPercent, storagePercent, formatBytes,
@@ -74,6 +74,40 @@ const storageUsageText = computed(() => {
   if (!volume) return '-';
   return formatBytes(volume.used_bytes) + ' / ' + formatBytes(volume.total_bytes);
 });
+const gpuDevices = computed(() => system.value?.device?.gpu?.devices ?? []);
+const hasMultipleGpus = computed(() => gpuDevices.value.length > 1);
+
+function gpuIndex(device: GpuDeviceInfo, fallback: number) {
+  return Number.isFinite(Number(device.index)) ? Number(device.index) : fallback;
+}
+
+function boundedPercent(value: unknown) {
+  const percent = Number(value);
+  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
+}
+
+function gpuUtilization(device: GpuDeviceInfo) {
+  return boundedPercent(device.utilization_gpu_percent);
+}
+
+function gpuMemoryPercent(device: GpuDeviceInfo) {
+  const total = Number(device.memory_total_mib);
+  const used = Number(device.memory_used_mib);
+  return total > 0 && Number.isFinite(used) ? boundedPercent((used / total) * 100) : 0;
+}
+
+function gpuMemoryText(device: GpuDeviceInfo) {
+  const total = Number(device.memory_total_mib);
+  const used = Number(device.memory_used_mib);
+  if (!(total > 0) || !Number.isFinite(used)) return '-';
+  return (used / 1024).toFixed(1) + ' / ' + (total / 1024).toFixed(1) + ' GB';
+}
+
+function gpuMetricText(value: number | null | undefined, suffix: string) {
+  if (value === null || value === undefined) return '-';
+  const metric = Number(value);
+  return Number.isFinite(metric) ? Math.round(metric) + suffix : '-';
+}
 
 function taskKindClass(task: TaskRecord) {
   if (task.status === 'failed' || task.status === 'canceled') return 'failed';
@@ -192,8 +226,55 @@ function openDashboardTask(task: TaskRecord) {
             <GaugeRing :percent="storagePercent" :size="80" />
             <span class="resourceMeta">{{ storageUsageText }}</span>
           </div>
-          <div class="resourceCard">
-            <strong class="resourceName">{{ t('gpu') }}</strong>
+          <div class="resourceCard gpuResourceCard">
+            <div class="resourceCardHeader">
+              <strong class="resourceName">{{ t('gpu') }}</strong>
+              <a-popover
+                v-if="hasMultipleGpus"
+                trigger="click"
+                placement="bottomRight"
+                overlay-class-name="gpuTelemetryPopover"
+              >
+                <template #content>
+                  <div class="gpuTelemetryPanel">
+                    <div class="gpuTelemetryTitle">
+                      <span>{{ locale === 'zh-CN' ? '显卡用量' : 'GPU usage' }}</span>
+                      <b>{{ gpuDevices.length }} {{ locale === 'zh-CN' ? '张卡' : 'devices' }}</b>
+                    </div>
+                    <div
+                      v-for="(gpu, gpuPosition) in gpuDevices"
+                      :key="gpu.uuid || gpu.id || gpuPosition"
+                      class="gpuTelemetryDevice"
+                    >
+                      <div class="gpuTelemetryDeviceHead">
+                        <span>GPU {{ gpuIndex(gpu, gpuPosition) }}</span>
+                        <strong :title="gpu.name || ''">{{ gpu.name || (locale === 'zh-CN' ? '未知显卡' : 'Unknown GPU') }}</strong>
+                      </div>
+                      <div class="gpuTelemetryMetric">
+                        <div><span>{{ locale === 'zh-CN' ? '利用率' : 'Utilization' }}</span><b>{{ gpuMetricText(gpu.utilization_gpu_percent, '%') }}</b></div>
+                        <span class="gpuTelemetryTrack"><i :style="{ width: gpuUtilization(gpu) + '%' }"></i></span>
+                      </div>
+                      <div class="gpuTelemetryMetric">
+                        <div><span>{{ locale === 'zh-CN' ? '显存' : 'Memory' }}</span><b>{{ gpuMemoryText(gpu) }}</b></div>
+                        <span class="gpuTelemetryTrack is-memory"><i :style="{ width: gpuMemoryPercent(gpu) + '%' }"></i></span>
+                      </div>
+                      <div class="gpuTelemetryAux">
+                        <span>{{ locale === 'zh-CN' ? '温度' : 'Temp' }} <b>{{ gpuMetricText(gpu.temperature_celsius, '°C') }}</b></span>
+                        <span>{{ locale === 'zh-CN' ? '功耗' : 'Power' }} <b>{{ gpuMetricText(gpu.power_draw_watts, 'W') }}</b></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <button
+                  type="button"
+                  class="gpuTelemetryButton"
+                  :aria-label="locale === 'zh-CN' ? '查看各显卡用量' : 'View per-GPU usage'"
+                  :title="locale === 'zh-CN' ? '查看各显卡用量' : 'View per-GPU usage'"
+                >
+                  <MoreOutlined />
+                </button>
+              </a-popover>
+            </div>
             <GaugeRing :percent="gpuPercent" :size="80" />
             <span class="resourceMeta">{{ system?.device?.gpu?.available ? gpuSummary : t('unavailable') }}</span>
           </div>

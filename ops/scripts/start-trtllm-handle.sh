@@ -39,7 +39,7 @@ docker run -d \
   --name "${CONTAINER_NAME}" \
   --gpus all \
   --ipc host \
-  --network host \
+  -p "${AI_STACK_BIND_ADDR}:${PORT}:${PORT}" \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
   -e HF_TOKEN="${HF_TOKEN:-}" \

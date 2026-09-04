@@ -1,0 +1,3 @@
+# Compatibility no-op: MinerU now uses the shared AI_STACK_BIND_ADDR policy.
+# Do not add a fixed LAN IP here: it would bypass the local-only setting.
+services: {}

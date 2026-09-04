@@ -20,7 +20,7 @@ const brandImage = computed(() => `./brand/${isDark.value ? 'amuin-light.png' : 
         <strong>{{ t('workstation') }}</strong>
         <span>{{ t('studioName') }}</span>
       </div>
-      <span class="sideNavVersion">v1.1.0 · 2026.06</span>
+      <span class="sideNavVersion">v1.1.1 · 2026.08</span>
     </div>
     <nav class="sideNavMenu" aria-label="主菜单">
       <button :class="['sideNavItem', view === 'dashboard' ? 'isActive' : '']" type="button" @click="view = 'dashboard'">

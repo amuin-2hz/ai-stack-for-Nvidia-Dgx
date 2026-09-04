@@ -19,14 +19,15 @@ services:
     ipc: host
     init: true
     ports:
-      - "${AI_STACK_BIND_ADDR:-127.0.0.1}:${QWEN3_TTS_PUBLIC_PORT:-18020}:8000"
+      - "${AI_STACK_BIND_ADDR:-0.0.0.0}:${QWEN3_TTS_PUBLIC_PORT:-18020}:8000"
     restart: ${AI_STACK_RESTART_POLICY:-unless-stopped}
     volumes:
-      - ../../../models/qwen3-tts-12hz-1.7b-customvoice:/models/qwen3-tts-12hz-1.7b-customvoice:ro
-      - ../../../models/qwen3-tts-12hz-1.7b-voicedesign:/models/qwen3-tts-12hz-1.7b-voicedesign:ro
-      - ../../../models/qwen3-tts-12hz-1.7b-base:/models/qwen3-tts-12hz-1.7b-base:ro
+      - ${MODELS_ROOT:-../../../models}/qwen3-tts-12hz-1.7b-customvoice:/models/qwen3-tts-12hz-1.7b-customvoice:ro
+      - ${MODELS_ROOT:-../../../models}/qwen3-tts-12hz-1.7b-voicedesign:/models/qwen3-tts-12hz-1.7b-voicedesign:ro
+      - ${MODELS_ROOT:-../../../models}/qwen3-tts-12hz-1.7b-base:/models/qwen3-tts-12hz-1.7b-base:ro
       - ../../../cache:/cache
     environment:
+      - NVIDIA_VISIBLE_DEVICES=${GPU_VISIBLE_DEVICES:-all}
       - OPENAI_MODEL=${OPENAI_MODEL:-qwen3-tts-12hz-1.7b-customvoice}
       - QWEN3_TTS_PRIMARY_MODEL=${MODEL_ALIAS:-qwen3-tts-12hz-1.7b-customvoice}
       - QWEN3_TTS_DEVICE=${QWEN3_TTS_DEVICE:-cuda:0}

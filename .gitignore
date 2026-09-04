@@ -25,6 +25,7 @@ dist/
 node_modules/
 .next/
 dist-electron/
+dist-release/
 THIRD_PARTY_NOTICES.md
 
 # ===== Python =====
@@ -62,5 +63,6 @@ venv/
 Thumbs.db
 .cache/
 .npm-cache/
+.build-tools/
 *.tsbuildinfo
 *.orig

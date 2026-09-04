@@ -2,7 +2,7 @@ import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises
 import { join, resolve } from "node:path";
 import { enrichTaskProgress } from "./taskProgress.js";
 import { inspectCompletedModelDownload, inspectModelIntegrity } from "./modelIntegrity.js";
-import { runCommand } from "./utils.js";
+import { isWeightFile, runCommand } from "./utils.js";
 import { listTasks, updateTask } from "./store.js";
 import type { TaskRecord } from "./types.js";
 
@@ -182,7 +182,7 @@ async function looksCompleteStagedPayload(tempPath: string): Promise<boolean> {
   if (integrity.missing_indexed_weight_files.length > 0) return false;
   const names = new Set(files.map((file) => file.split("/").pop() ?? file));
   const hasConfig = names.has("config.json") || names.has("configuration.json") || names.has("config.yaml");
-  const hasWeight = files.some((file) => /\.(safetensors|bin|gguf|pt|pth|onnx|engine)$/.test(file));
+  const hasWeight = files.some(isWeightFile);
   return hasConfig && hasWeight;
 }
 

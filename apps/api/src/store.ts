@@ -1,4 +1,5 @@
 import { getDb } from "./db.js";
+import { runtimeBindAddress } from "./runtimeNetwork.js";
 import type { ActiveDeploymentRecord, ChatMessage, ChatRecord, ContainerSettings, ModelFileRecord, ModelFileStatus, TaskRecord } from "./types.js";
 
 const now = () => new Date().toISOString();
@@ -76,6 +77,10 @@ function taskRowToRecord(r: any): TaskRecord {
 export function upsertModelFile(file: ModelFileRecord): ModelFileRecord {
   const db = getDb();
   const updatedAt = file.updated_at || now();
+  if (file.task_id) {
+    const taskExists = db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(file.task_id);
+    if (!taskExists) return { ...file, updated_at: updatedAt };
+  }
   db.prepare(`INSERT INTO model_files (model_id, relative_path, status, size_bytes, downloaded_bytes, task_id, error, updated_at)
     VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT(model_id, relative_path) DO UPDATE SET
@@ -375,22 +380,27 @@ export function setManagementPort(port: number): any {
 }
 
 export function getNetworkSettings(): any {
-  return getSetting("network") ?? {
-    lan_access_enabled: process.env.LAN_ACCESS_ENABLED !== "0",
-    desired_bind_address: process.env.AI_STACK_BIND_ADDR ?? "0.0.0.0",
-    active_bind_address: process.env.AI_STACK_BIND_ADDR ?? "0.0.0.0",
-    requires_restart: false,
-    updated_at: now(),
+  const saved = getSetting("network") as { lan_access_enabled?: boolean; updated_at?: string } | undefined;
+  const active = runtimeBindAddress();
+  const enabled = typeof saved?.lan_access_enabled === "boolean" ? saved.lan_access_enabled : active === "0.0.0.0";
+  const desired = runtimeBindAddress({ lan_access_enabled: enabled });
+  return {
+    lan_access_enabled: enabled,
+    desired_bind_address: desired,
+    active_bind_address: active,
+    requires_restart: active !== desired,
+    updated_at: saved?.updated_at ?? now(),
   };
 }
 
 export function setNetworkAccess(lanAccessEnabled: boolean): any {
-  const desired = lanAccessEnabled ? "0.0.0.0" : "127.0.0.1";
+  const desired = runtimeBindAddress({ lan_access_enabled: lanAccessEnabled });
+  const active = runtimeBindAddress();
   const settings = {
     lan_access_enabled: lanAccessEnabled,
     desired_bind_address: desired,
-    active_bind_address: process.env.AI_STACK_BIND_ADDR ?? "0.0.0.0",
-    requires_restart: (process.env.AI_STACK_BIND_ADDR ?? "0.0.0.0") !== desired,
+    active_bind_address: active,
+    requires_restart: active !== desired,
     updated_at: now(),
   };
   setSetting("network", settings);

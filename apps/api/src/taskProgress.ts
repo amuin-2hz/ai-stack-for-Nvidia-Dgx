@@ -3,6 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { listModelFilesForTask, upsertModelFile } from "./store.js";
 import { fetchHuggingFaceTotalBytes, fetchModelScopeTotalBytes } from "./modelManifest.js";
 import { inspectModelIntegrity } from "./modelIntegrity.js";
+import { isWeightFile } from "./utils.js";
 import type { ModelFileRecord, TaskRecord } from "./types.js";
 
 export interface TaskProgressInfo {
@@ -315,7 +316,7 @@ function trustedExpectedTotalBytes(
 }
 
 function hasLargeWeightDownloadInLog(log: string): boolean {
-  return /Downloading ['"][^'"]*\.(?:safetensors|bin|pt|pth|gguf|engine)['"]/i.test(log);
+  return /Downloading ['"][^'"]*\.(?:safetensors|bin|pt|pth|gguf|engine|fst)['"]/i.test(log);
 }
 
 async function hasDownloadStagingArtifacts(path: string): Promise<boolean> {
@@ -457,7 +458,7 @@ async function looksCompleteDownloadedModel(path: string): Promise<boolean> {
 
   const names = new Set(files.map((file) => file.split("/").pop() ?? file));
   const hasConfig = names.has("config.json") || names.has("configuration.json") || names.has("cosyvoice.yaml") || names.has("config.yaml");
-  const hasWeight = files.some((file) => /\.(safetensors|bin|gguf|pt|pth|onnx|engine)$/.test(file));
+  const hasWeight = files.some(isWeightFile);
   if (!hasConfig || !hasWeight) return false;
 
   const hasMarker = await (async () => {

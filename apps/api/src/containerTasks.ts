@@ -2,7 +2,8 @@ import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createTask, runManagedCommand } from "./taskRunner.js";
 import { runCommand, shellQuote, slugify } from "./utils.js";
-import { createTask as persistTask, deleteDeployment, getSetting, setSetting, listTasks, listContainerConfigs } from "./store.js";
+import { createTask as persistTask, deleteDeployment, getNetworkSettings, getSetting, setSetting, listTasks, listContainerConfigs } from "./store.js";
+import { runtimeBindAddress, runtimeNetworkEnv } from "./runtimeNetwork.js";
 import type { ContainerManagementMode, ContainerRestartPolicy, ContainerSettings } from "./types.js";
 import type { CustomContainerRequest, ContainerRecord, RuntimePreset } from "./containerPresets.js";
 import {
@@ -122,7 +123,9 @@ export async function createCustomContainerTask(request: CustomContainerRequest,
     await writeFile(yamlPath, request.compose_yaml, "utf-8");
     const mode = request.management_mode === "once" ? "once" : "resident";
     const restartPolicy = normalizeRestartPolicy(request.restart_policy, request.auto_restart, mode);
-    const command = ["docker compose -f", shellQuote(yamlPath), "-p", shellQuote(name), "up -d --wait"].join(" ");
+    const networkEnv = Object.entries(runtimeNetworkEnv(getNetworkSettings()))
+      .map(([key, value]) => key + "=" + shellQuote(value)).join(" ");
+    const command = [networkEnv, "docker compose -f", shellQuote(yamlPath), "-p", shellQuote(name), "up -d --wait"].join(" ");
     const task = createTask("container", command, baseDir, join(logsRoot, "tasks", "container-" + name + ".log"), { name, image: "compose:" + name, components: [], management_mode: mode, restart_policy: restartPolicy, compose_yaml_path: yamlPath });
     await persistTask(task);
     void runManagedCommand({ taskId: task.id, command: "bash", args: ["-lc", command], cwd: baseDir, logPath: task.log_path });
@@ -159,7 +162,7 @@ export async function createRuntimeStartTestTask(key: string, baseDir: string, l
   if (!preset) throw new Error("Unknown preset runtime: " + key);
   const settings = ((listContainerConfigs() as ContainerSettings[]).find((c) => c.key === key)) ?? defaultSettingsFor(preset.key, preset.port, preset.management_mode);
   const name = preset.names[0] ?? preset.key;
-  const bindAddress = process.env.AI_STACK_BIND_ADDR === "127.0.0.1" ? "127.0.0.1" : "0.0.0.0";
+  const bindAddress = runtimeBindAddress(getNetworkSettings());
   const internalPort = key === "pytorch" ? 9000 : 8000;
   const restartPolicy = normalizeRestartPolicy(settings.restart_policy, settings.auto_restart, settings.management_mode);
   const image = settings.image || preset.image;

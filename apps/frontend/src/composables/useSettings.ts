@@ -17,7 +17,7 @@ export const proxyScope = ref<import('../types').ProxyScope>('all');
 export const proxyHttp = ref('');
 export const proxyHttps = ref('');
 export const proxyAll = ref('');
-export const proxyNo = ref('localhost,127.0.0.1,::1');
+export const proxyNo = ref('localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16');
 
 const proxyDirty = ref(false);
 let applyingProxySettings = false;
@@ -29,7 +29,7 @@ function applyProxySettings(settings: import('../types').ProxySettings | null) {
   proxyHttp.value = settings?.http_proxy ?? '';
   proxyHttps.value = settings?.https_proxy ?? '';
   proxyAll.value = settings?.all_proxy ?? '';
-  proxyNo.value = settings?.no_proxy || 'localhost,127.0.0.1,::1';
+  proxyNo.value = settings?.no_proxy || 'localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
   globalThis.setTimeout(() => { applyingProxySettings = false; }, 0);
 }
 
@@ -81,6 +81,7 @@ export async function toggleLanAccess() {
     networkMessage.value = payload.requires_restart
       ? t('savedNeedsRestart') + payload.desired_bind_address
       : t('savedActive');
+    networkMessage.value += ' ' + t('networkHint');
   } catch (error) {
     networkMessage.value = String(error);
   }

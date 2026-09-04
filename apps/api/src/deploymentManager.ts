@@ -1,7 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTask, runManagedCommand } from "./taskRunner.js";
-import { createTask as persistTask, getTask, listActiveDeployments, listTasks, updateTask, upsertDeployment } from "./store.js";
+import { createTask as persistTask, getNetworkSettings, getTask, listActiveDeployments, listTasks, updateTask, upsertDeployment } from "./store.js";
 import { createRuntimePlan, deploymentContainerName, deploymentInstanceId, healthUrl, publicBaseUrl, runtimeCommandFor, settingsFor } from "./runtimePlan.js";
 import { runCommand } from "./utils.js";
 import type { ActiveDeploymentRecord, ContainerSettings, DeploymentRecord, ModelRecord, ServiceType } from "./types.js";
@@ -22,7 +22,7 @@ export function createDeploymentPlan(
   containerSettings?: ContainerSettings
 ) {
   const settings = resolveDeploymentSettings(serviceType, model.id, openaiModel, settingsFor(serviceType, containerSettings));
-  return createRuntimePlan(deployment, model, serviceType, openaiModel, args, baseDir, settings);
+  return createRuntimePlan(deployment, model, serviceType, openaiModel, args, baseDir, settings, getNetworkSettings());
 }
 
 export async function startDeployment(
@@ -52,7 +52,9 @@ export async function startDeployment(
   });
   persistTask(task);
 
-  const runnable = runtimeCommandFor(serviceType, model.id, openaiModel, args, settings);
+  const runnable = runtimeCommandFor(serviceType, model.id, openaiModel, args, settings, {
+    lan_access_enabled: plan.launch.env.AI_STACK_BIND_ADDR === "0.0.0.0"
+  });
   void runManagedCommand({
     taskId: task.id,
     command: runnable.command,

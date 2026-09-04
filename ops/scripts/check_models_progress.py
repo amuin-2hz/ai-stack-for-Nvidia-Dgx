@@ -14,10 +14,13 @@ MODELS_DIR = PROJECT_ROOT / "models"
 HF_CACHE_DIR = PROJECT_ROOT / "cache" / "hf" / "hub"
 ESSENTIAL_CONFIGS = {
     "config.json",
+    "configuration.json",
+    "config.yaml",
+    "cosyvoice.yaml",
     "tokenizer.json",
     "tokenizer_config.json",
 }
-WEIGHT_SUFFIXES = (".safetensors", ".bin", ".gguf", ".pt", ".pth")
+WEIGHT_SUFFIXES = (".safetensors", ".bin", ".gguf", ".pt", ".pth", ".onnx", ".engine", ".fst")
 
 
 @dataclass

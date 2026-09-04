@@ -1,4 +1,7 @@
+import { join } from "node:path";
 import { compatibilityFor, servicePorts } from "./modelRegistry.js";
+import { gpuDeviceRequest, gpuVisibleDevices } from "./gpuDevices.js";
+import { runtimeNetworkEnv, type RuntimeNetworkSettings } from "./runtimeNetwork.js";
 import { shellQuote, slugify } from "./utils.js";
 import type { ContainerSettings, DeploymentRecord, ModelRecord, ServiceType } from "./types.js";
 
@@ -68,12 +71,13 @@ export function createRuntimePlan(
   openaiModel: string,
   args: Record<string, unknown>,
   baseDir: string,
-  settings?: ContainerSettings
+  settings?: ContainerSettings,
+  network?: RuntimeNetworkSettings
 ): RuntimePlan {
   const resolvedSettings = settingsFor(serviceType, settings);
   const deploymentId = deploymentInstanceId(serviceType, model.id, openaiModel);
   const containerName = deploymentContainerName(serviceType, model.id, openaiModel);
-  const launch = launchPlanFor(serviceType, model.id, openaiModel, args, baseDir, resolvedSettings);
+  const launch = launchPlanFor(serviceType, model.id, openaiModel, args, baseDir, resolvedSettings, network);
   const baseUrl = publicBaseUrl(serviceType, resolvedSettings.public_port);
   const health = healthUrl(serviceType, resolvedSettings.public_port);
 
@@ -99,7 +103,8 @@ export function runtimeCommandFor(
   modelId: string,
   openaiModel: string,
   args: Record<string, unknown>,
-  settings?: ContainerSettings
+  settings?: ContainerSettings,
+  network?: RuntimeNetworkSettings
 ): RuntimeCommand {
   const resolvedSettings = settingsFor(serviceType, settings);
   if (serviceType === "vllm") {
@@ -122,14 +127,17 @@ export function runtimeCommandFor(
 
     return {
       command: "bash",
-      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f \"$VLLM_CONTAINER_NAME\" >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker image inspect \"$VLLM_IMAGE\" >/dev/null 2>&1 || docker pull \"$VLLM_IMAGE\"; echo __AMUIN_STAGE__:start:running; docker run -d --name \"$VLLM_CONTAINER_NAME\" --label amuin.role=model-runtime --label amuin.runtime=vllm --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus all --ipc host -p \"$AI_STACK_BIND_ADDR:$VLLM_PUBLIC_PORT:8000\" -v \"$PWD/models/$MODEL_ALIAS:/models/$MODEL_ALIAS:ro\" -v \"$PWD/cache/hf:/root/.cache/huggingface\" -e \"HF_TOKEN=$HF_TOKEN\" -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \"$VLLM_IMAGE\" \"/models/$MODEL_ALIAS\" --served-model-name \"$OPENAI_MODEL\" --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size \"$VLLM_TENSOR_PARALLEL_SIZE\" --max-model-len \"$VLLM_MAX_MODEL_LEN\" --gpu-memory-utilization \"$VLLM_GPU_MEMORY_UTILIZATION\" --max-num-seqs \"$VLLM_MAX_NUM_SEQS\" --kv-cache-dtype \"$VLLM_KV_CACHE_DTYPE\"" + optionalVllmFlags],
+      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f \"$VLLM_CONTAINER_NAME\" >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker image inspect \"$VLLM_IMAGE\" >/dev/null 2>&1 || docker pull \"$VLLM_IMAGE\"; echo __AMUIN_STAGE__:start:running; docker run -d --name \"$VLLM_CONTAINER_NAME\" --label amuin.role=model-runtime --label amuin.runtime=vllm --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus \"$GPU_DEVICE_REQUEST\" --ipc host -p \"$AI_STACK_BIND_ADDR:$VLLM_PUBLIC_PORT:8000\" -v \"$MODELS_ROOT/$MODEL_ALIAS:/models/$MODEL_ALIAS:ro\" -v \"$PWD/cache/hf:/root/.cache/huggingface\" -e \"HF_TOKEN=$HF_TOKEN\" -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \"$VLLM_IMAGE\" \"/models/$MODEL_ALIAS\" --served-model-name \"$OPENAI_MODEL\" --host 0.0.0.0 --port 8000 --trust-remote-code --tensor-parallel-size \"$VLLM_TENSOR_PARALLEL_SIZE\" --max-model-len \"$VLLM_MAX_MODEL_LEN\" --gpu-memory-utilization \"$VLLM_GPU_MEMORY_UTILIZATION\" --max-num-seqs \"$VLLM_MAX_NUM_SEQS\" --kv-cache-dtype \"$VLLM_KV_CACHE_DTYPE\"" + optionalVllmFlags],
+
       env: {
+        GPU_DEVICE_REQUEST: gpuDeviceRequest(args),
         VLLM_CONTAINER_NAME: containerName,
         MODEL_ALIAS: modelId,
         OPENAI_MODEL: openaiModel,
         VLLM_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.VLLM_IMAGE ?? "vllm/vllm-openai:latest"),
+        MODELS_ROOT: process.env.MODELS_ROOT ?? join(process.env.AI_STACK_BASE ?? process.cwd(), "models"),
         VLLM_PUBLIC_PORT: String(resolvedSettings.public_port),
-        AI_STACK_BIND_ADDR: validBindAddress(process.env.AI_STACK_BIND_ADDR),
+        ...runtimeNetworkEnv(network),
         AI_STACK_RESTART_POLICY: resolvedSettings.restart_policy,
         VLLM_MAX_MODEL_LEN: String(args.max_model_len ?? process.env.VLLM_MAX_MODEL_LEN ?? "4096"),
         VLLM_GPU_MEMORY_UTILIZATION: String(gpuMemoryUtilization),
@@ -145,10 +153,16 @@ export function runtimeCommandFor(
   if (serviceType === "pytorch") {
     return {
       command: "bash",
-      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f pytorch-service >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.pytorch.yml build pytorch-service; echo __AMUIN_STAGE__:start:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.pytorch.yml up -d pytorch-service"],
+      args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; docker rm -f pytorch-service >/dev/null 2>&1 || true; echo __AMUIN_STAGE__:pull:running; docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.pytorch.yml build pytorch-service; echo __AMUIN_STAGE__:start:running; docker run -d --name pytorch-service --label amuin.role=model-runtime --label amuin.runtime=pytorch --label \"amuin.model=$MODEL_ALIAS\" --restart \"$AI_STACK_RESTART_POLICY\" --gpus \"$GPU_DEVICE_REQUEST\" --ipc host -p \"$AI_STACK_BIND_ADDR:$PYTORCH_PUBLIC_PORT:9000\" -v \"$MODELS_ROOT:/models:ro\" -v \"$CACHE_ROOT:/cache\" -e MODELS_ROOT=/models -e CACHE_ROOT=/cache -e \"NVIDIA_VISIBLE_DEVICES=$GPU_VISIBLE_DEVICES\" local/ai-stack-pytorch:latest"],
       env: {
+        GPU_DEVICE_REQUEST: gpuDeviceRequest(args),
+        GPU_VISIBLE_DEVICES: gpuVisibleDevices(args),
+        MODEL_ALIAS: modelId,
+        MODELS_ROOT: process.env.MODELS_ROOT ?? join(process.env.AI_STACK_BASE ?? process.cwd(), "models"),
+        CACHE_ROOT: join(process.env.AI_STACK_BASE ?? process.cwd(), "cache"),
         PYTORCH_PUBLIC_PORT: String(resolvedSettings.public_port),
         PYTORCH_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.PYTORCH_IMAGE ?? "nvcr.io/nvidia/pytorch:25.04-py3"),
+        ...runtimeNetworkEnv(network),
         AI_STACK_RESTART_POLICY: resolvedSettings.restart_policy
       }
     };
@@ -160,6 +174,8 @@ export function runtimeCommandFor(
       command: "bash",
       args: ["-lc", "echo __AMUIN_STAGE__:prepare:running; echo __AMUIN_STAGE__:pull:running; echo __AMUIN_STAGE__:start:running; ops/scripts/start-trtllm-model.sh " + shellQuote(modelId) + " " + shellQuote(String(resolvedSettings.public_port))],
       env: {
+        ...runtimeNetworkEnv(network),
+        GPU_DEVICE_REQUEST: gpuDeviceRequest(args),
         TRTLLM_CONTAINER_NAME: containerName,
         TRTLLM_RESTART_POLICY: resolvedSettings.restart_policy,
         TRTLLM_IMAGE: String(args.image ?? resolvedSettings.image ?? process.env.TRTLLM_IMAGE ?? "nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc6"),
@@ -229,9 +245,10 @@ function launchPlanFor(
   openaiModel: string,
   args: Record<string, unknown>,
   baseDir: string,
-  settings: ContainerSettings
+  settings: ContainerSettings,
+  network?: RuntimeNetworkSettings
 ): RuntimeLaunchPlan {
-  const runnable = runtimeCommandFor(serviceType, modelId, openaiModel, args, settings);
+  const runnable = runtimeCommandFor(serviceType, modelId, openaiModel, args, settings, network);
   const env = runnable.env;
   const command = [
     ...Object.entries(env).map(([key, value]) => key + "=" + shellQuote(value)),
@@ -259,8 +276,4 @@ function notesFor(serviceType: ServiceType, settings: ContainerSettings): string
     return ["TensorRT-LLM remains an advanced route; validate checkpoint support before starting."];
   }
   return [];
-}
-
-function validBindAddress(value: string | undefined): string {
-  return value === "127.0.0.1" || value === "0.0.0.0" ? value : "0.0.0.0";
 }
