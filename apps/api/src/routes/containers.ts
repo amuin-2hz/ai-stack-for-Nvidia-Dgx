@@ -805,13 +805,16 @@ export function register(
           const healthUrl = "http://localhost:" + publicPort + (suite?.health_path || (serviceType === "vllm" ? "/health" : "/healthz"));
           const deployedModel = id === "qwen3-tts" ? modelId : openaiModel || modelId;
           if (suite) {
+            const suiteModelId = suite.components.find((component) => component.required)?.model_id
+              ?? suite.components[0].model_id;
+            const suiteApiModel = suite.api_models?.[0] ?? deployedModel ?? suiteModelId;
             const deploymentId = "custom-profile:" + id + ":suite";
             for (const existing of listActiveDeployments()) {
               if (existing.container_name === name && existing.deployment_id !== deploymentId) deleteDeployment(existing.deployment_id);
             }
             upsertDeployment({
               deployment_id: deploymentId,
-              model_id: modelId || suite.components[0].model_id,
+              model_id: suiteModelId,
               service_type: serviceType,
               runtime: id,
               container_name: name,
@@ -819,7 +822,7 @@ export function register(
               base_url: baseUrl,
               health_url: healthUrl,
               worker_endpoint: baseUrl,
-              openai_model: deployedModel || suite.components[0].model_id,
+              openai_model: suiteApiModel,
               status: "running",
               task_id: task.id,
               args: gpuArgs,

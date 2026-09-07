@@ -15,7 +15,7 @@ import {
   statusText, badgeColor, runtimeHintColor, canDeployToSelected,
   deployContextLength, deployGpuUtil, deployMaxSeqs, deployTensorParallel, deployKvCacheDtype,
   deployGpuDeviceIds, gpuDeviceOptions, selectedGpuCount, syncGpuParallelism,
-  deployEnableAutoToolChoice, deployToolCallParser, deployReasoningParser,
+  deployEnableAutoToolChoice, deployEnableThinking, deployToolCallParser, deployReasoningParser,
   trtMaxBatchSize, trtMaxNumTokens, trtKvCacheFraction, trtTpSize, trtPpSize,
   contextLimit, tensorParallelLimit, paramLimitText, shortModelPath, formatBytes, modelFormatLabel,
   selectedContainer, selectedContainerKey, selectedDeployModel, rightPanelCollapsed, applyDeploymentArgs
@@ -552,6 +552,13 @@ function deploymentCurlCommand(deployment: any) {
                       <a-select v-model:value="deployToolCallParser" :options="publishToolCallParserOptions" />
                     </div>
                     <small v-else class="publish-tool-routing-disabled">{{ t('autoToolChoiceDisabledHint') }}</small>
+                    <div class="publish-tool-routing-head">
+                      <span>
+                        <strong>{{ t('thinkingMode') }}</strong>
+                        <small>{{ t('thinkingModeHint') }}</small>
+                      </span>
+                      <a-switch v-model:checked="deployEnableThinking" />
+                    </div>
                     <div class="publishParamField">
                       <label>{{ t('reasoningParser') }}</label>
                       <a-select v-model:value="deployReasoningParser" :options="publishReasoningParserOptions" />

@@ -102,6 +102,18 @@ test("vLLM uses explicit tool-call and reasoning parsers", () => {
   assert.equal(command.env.VLLM_REASONING_PARSER, "qwen3");
 });
 
+test("vLLM applies an explicit default thinking mode without changing omitted defaults", () => {
+  const disabled = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", { enable_thinking: false });
+  assert.match(disabled.args.join(" "), /--default-chat-template-kwargs "\$VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS"/);
+  assert.equal(disabled.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, JSON.stringify({ enable_thinking: false }));
+
+  const enabled = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", { enable_thinking: true });
+  assert.equal(enabled.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, JSON.stringify({ enable_thinking: true }));
+
+  const inherited = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", {});
+  assert.doesNotMatch(inherited.args.join(" "), /--default-chat-template-kwargs/);
+  assert.equal(inherited.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, undefined);
+});
 test("vLLM recommends qwen3_coder for supported Qwen and OmniCoder models", () => {
   for (const model of ["Qwen3.5-9B", "qwen3.6", "qwen3.8-27b", "OmniCoder-9B"]) {
     const command = runtimeCommandFor("vllm", model, model, { enable_auto_tool_choice: true });

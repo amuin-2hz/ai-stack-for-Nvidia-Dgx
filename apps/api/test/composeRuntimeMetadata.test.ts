@@ -7,6 +7,9 @@ test("parses x-ai-stack suite metadata without affecting normal Compose fields",
 x-ai-stack:
   runtime:
     kind: suite
+    api_models:
+      - pipeline:general
+      - pipeline:meeting
     publish_policy: all_ready
     load_policy: lazy
     card_mode: grouped
@@ -26,6 +29,7 @@ services:
 `);
   assert.equal(declaration?.kind, "suite");
   assert.equal(declaration?.publish_policy, "all_ready");
+  assert.deepEqual(declaration?.api_models, ["pipeline:general", "pipeline:meeting"]);
   assert.equal(declaration?.primary_endpoint?.path, "/transcription/transcribe");
   assert.deepEqual(declaration?.components, [
     { model_id: "asr-model", role: "asr", required: true },

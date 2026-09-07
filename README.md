@@ -56,7 +56,7 @@ TensorRT-LLM and VibeVoice are available integrations, but they are intentionall
 
 ## What the current release provides
 
-Version `1.1.2` provides an ARM64 application and deployment workflow for a trusted personal workstation:
+Version `1.1.3` provides an ARM64 application and deployment workflow for a trusted personal workstation:
 
 - Chinese/English Electron desktop application and LAN-accessible web console.
 - GPU, CPU, memory, storage, Docker container, port, task, health, and log views.
@@ -85,7 +85,7 @@ The control plane stores local state, produces runtime plans, invokes Docker, pe
 
 AMUIN AI STACK does **not** bundle the CUDA inference environments inside the desktop package. Model services are pulled or built as Docker images, so the following are required before publishing a model:
 
-- Linux ARM64 for the official `v1.1.2` packages.
+- Linux ARM64 for the official `v1.1.3` packages.
 - NVIDIA GPU driver and a working CUDA-capable host.
 - Docker Engine with the Docker Compose plugin (`docker compose`).
 - NVIDIA Container Toolkit configured for Docker GPU access.
@@ -112,14 +112,14 @@ Membership in the `docker` group is effectively root-equivalent on the host. Onl
 
 ## Install on DGX Spark / ARM64
 
-Download the packages from the repository's `v1.1.2` Release page.
+Download the packages from the repository's `v1.1.3` Release page.
 
 ```bash
 # DGX OS / Ubuntu / Debian
-sudo apt install ./amuin-ai-stack_1.1.2_arm64.deb
+sudo apt install ./amuin-ai-stack_1.1.3_arm64.deb
 
 # ARM64 RPM-based distributions
-sudo dnf install ./amuin-ai-stack-1.1.2-1.aarch64.rpm
+sudo dnf install ./amuin-ai-stack-1.1.3-1.aarch64.rpm
 ```
 
 Launch the desktop application from the system menu or terminal:

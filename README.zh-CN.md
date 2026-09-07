@@ -56,7 +56,7 @@ TensorRT-LLM 与 VibeVoice 已提供集成，但在最新端到端 DGX Spark 验
 
 ## 当前版本提供的功能
 
-`1.1.2` 面向可信任的个人工作站提供 ARM64 应用和完整部署流程：
+`1.1.3` 面向可信任的个人工作站提供 ARM64 应用和完整部署流程：
 
 - 中英文 Electron 桌面应用，以及可通过局域网访问的 Web 控制台。
 - GPU、CPU、内存、存储、Docker 容器、端口、任务、健康状态和日志查看。
@@ -85,7 +85,7 @@ TensorRT-LLM 与 VibeVoice 已提供集成，但在最新端到端 DGX Spark 验
 
 AMUIN AI STACK **不会**把所有 CUDA 推理环境打进桌面安装包。模型服务需要拉取或构建 Docker 镜像，因此发布模型前必须具备：
 
-- 官方 `v1.1.2` 安装包要求 ARM64 Linux。
+- 官方 `v1.1.3` 安装包要求 ARM64 Linux。
 - NVIDIA GPU 驱动及可用的 CUDA 主机环境。
 - Docker Engine 和 Docker Compose 插件（`docker compose`）。
 - 已为 Docker 配置 NVIDIA Container Toolkit，容器可以访问 GPU。
@@ -112,14 +112,14 @@ newgrp docker
 
 ## 在 DGX Spark / ARM64 上安装
 
-从仓库的 `v1.1.2` Release 页面下载安装包：
+从仓库的 `v1.1.3` Release 页面下载安装包：
 
 ```bash
 # DGX OS / Ubuntu / Debian
-sudo apt install ./amuin-ai-stack_1.1.2_arm64.deb
+sudo apt install ./amuin-ai-stack_1.1.3_arm64.deb
 
 # ARM64 RPM 系发行版
-sudo dnf install ./amuin-ai-stack-1.1.2-1.aarch64.rpm
+sudo dnf install ./amuin-ai-stack-1.1.3-1.aarch64.rpm
 ```
 
 从系统应用菜单启动，或执行：

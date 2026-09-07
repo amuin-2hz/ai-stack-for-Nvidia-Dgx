@@ -3,6 +3,11 @@ x-ai-stack:
     kind: suite
     title: FunASR Gateway
     title_zh: FunASR 语音网关
+    api_models:
+      - pipeline:general
+      - pipeline:accurate-zh
+      - pipeline:domain-zh
+      - pipeline:meeting
     publish_policy: all_ready
     load_policy: lazy
     card_mode: grouped

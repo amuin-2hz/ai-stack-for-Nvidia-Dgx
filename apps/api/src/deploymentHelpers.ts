@@ -81,6 +81,18 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     return deployment;
   }
 
+  function canonicalizeSuiteDeployment(deployment: ActiveDeploymentRecord): ActiveDeploymentRecord {
+    const apiModel = deployment.suite?.api_models?.[0];
+    const primaryComponent = deployment.suite?.components.find((component) => component.required)
+      ?? deployment.suite?.components[0];
+    if (!apiModel || !primaryComponent) return deployment;
+    return {
+      ...deployment,
+      model_id: primaryComponent.model_id,
+      openai_model: apiModel
+    };
+  }
+
   async function deploymentContainerIsRunning(
     containerName: string | null | undefined
   ): Promise<boolean> {
@@ -98,13 +110,22 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
     if (!taskId) return undefined;
     const task = getTask(taskId);
     const metadata = task?.metadata ?? {};
-    if (metadata.suite && typeof metadata.suite === "object") return metadata.suite as DeploymentSuite;
+    const savedSuite = metadata.suite && typeof metadata.suite === "object"
+      ? metadata.suite as DeploymentSuite
+      : undefined;
     const composePath = String(metadata.compose_yaml_path ?? "").trim();
-    if (!composePath) return undefined;
+    if (!composePath) return savedSuite;
     try {
-      return parseComposeRuntimeDeclaration(await readFile(composePath, "utf-8")) ?? undefined;
+      const declaredSuite = parseComposeRuntimeDeclaration(await readFile(composePath, "utf-8")) ?? undefined;
+      if (!declaredSuite) return savedSuite;
+      if (!savedSuite) return declaredSuite;
+      return {
+        ...savedSuite,
+        api_models: declaredSuite.api_models ?? savedSuite.api_models,
+        primary_endpoint: declaredSuite.primary_endpoint ?? savedSuite.primary_endpoint
+      };
     } catch {
-      return undefined;
+      return savedSuite;
     }
   }
 
@@ -117,7 +138,11 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         : undefined;
       const recoveredArgs = mergeDeploymentRuntimeArgs(deployment.args, runtimeArgs);
       const baseDeployment = normalizeDeployment({ ...deployment, args: recoveredArgs });
-      const normalized = { ...baseDeployment, suite: baseDeployment.suite ?? await deploymentSuiteForTask(baseDeployment.task_id) };
+      const taskSuite = await deploymentSuiteForTask(baseDeployment.task_id);
+      const normalized = canonicalizeSuiteDeployment({
+        ...baseDeployment,
+        suite: taskSuite ?? baseDeployment.suite
+      });
       if (!(await deploymentContainerIsRunning(normalized.container_name))) {
         upsertDeployment({ ...normalized, status: "stopped", updated_at: new Date().toISOString() });
         continue;
@@ -174,7 +199,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
       const baseUrl = serviceType === "vllm" ? rawBaseUrl.replace(/\/v1$/, "") + "/v1" : rawBaseUrl;
       const healthUrlValue = String(plan.health_url ?? (rawBaseUrl + (serviceType === "vllm" ? "/health" : "/healthz")));
       const ready = await runtimeIsReady(healthUrlValue, baseUrl, openaiModel, serviceType, profileId);
-      const deployment: ActiveDeploymentRecord = {
+      const deployment = canonicalizeSuiteDeployment({
         deployment_id: suite ? "custom-profile:" + profileId + ":suite" : "custom-profile:" + profileId + ":" + openaiModel,
         model_id: modelId,
         service_type: serviceType,
@@ -189,7 +214,7 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         task_id: task.id,
         updated_at: new Date().toISOString(),
         suite
-      };
+      });
       upsertDeployment(deployment);
       recovered.set(containerName, deployment);
     }
@@ -238,7 +263,9 @@ export function createDeploymentHelpers(deps: DeploymentHelpersDeps) {
         base_url: normalized.base_url,
         health_url: normalized.health_url,
         worker_endpoint: normalized.worker_endpoint,
-        openai_models: normalized.suite?.components.map((component) => component.model_id) ?? [normalized.openai_model],
+        openai_models: normalized.suite?.api_models?.length
+          ? normalized.suite.api_models
+          : [normalized.openai_model],
         warnings: [] as string[],
         args: (normalized as typeof normalized & { args?: Record<string, unknown> }).args,
         suite: normalized.suite
@@ -432,6 +459,13 @@ export function runtimeArgsFromVllmCommand(args: string[]): Record<string, unkno
   if (toolCallParser) result.tool_call_parser = toolCallParser;
   const reasoningParser = flagValue(args, "--reasoning-parser");
   if (reasoningParser) result.reasoning_parser = reasoningParser;
+  const templateKwargs = flagValue(args, "--default-chat-template-kwargs");
+  if (templateKwargs) {
+    try {
+      const parsed = JSON.parse(templateKwargs) as { enable_thinking?: unknown };
+      if (typeof parsed.enable_thinking === "boolean") result.enable_thinking = parsed.enable_thinking;
+    } catch { /* Ignore malformed or externally managed template kwargs. */ }
+  }
   return Object.keys(result).length ? result : undefined;
 }
 

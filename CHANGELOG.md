@@ -4,6 +4,16 @@
 
 ---
 
+## [1.1.3] — 2026-09-07
+
+### 模型服务清单与思考模式修复
+
+- 修复 FunASR 共享套件错误继承所选本地模型名的问题，不再把运行中的 FunASR 登记为 `whisper-large-v3`。
+- 将 FunASR 对外模型清单改为真实可调用的 `pipeline:general`、`pipeline:accurate-zh`、`pipeline:domain-zh` 与 `pipeline:meeting`，并自动归一化旧部署记录。
+- 模型库按套件组件标记实际加载状态；聚合模型接口同时返回准确端点、服务身份和套件组件。
+- 为 vLLM 模型加载新增独立“思考模式”开关，支持保存、恢复及生成 `--default-chat-template-kwargs`，且保留请求级覆盖能力。
+- 验证：95 项 API 回归测试通过；API 与前端正式构建通过；在线 FunASR 清单及思考关闭部署计划验证通过。
+
 ## [1.1.2] — 2026-09-04
 
 ### 网络发布与运行时修复合集

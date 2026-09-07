@@ -18,7 +18,7 @@ import {
   currentLoadedModel, publicHost, runningDeployments,
   deployContextLength, deployGpuUtil, deployMaxSeqs, deployTensorParallel, deployKvCacheDtype,
   deployGpuDeviceIds, selectedGpuCount,
-  deployEnableAutoToolChoice, deployToolCallParser, deployReasoningParser,
+  deployEnableAutoToolChoice, deployEnableThinking, deployToolCallParser, deployReasoningParser,
   effectiveToolCallParser, effectiveReasoningParser, recommendedToolCallParser, recommendedReasoningParser,
   trtMaxBatchSize, trtMaxNumTokens, trtKvCacheFraction, trtTpSize, trtPpSize, contextLimit,
   canDeployToSelected,
@@ -320,6 +320,7 @@ export const publishParameterSummary = computed(() => {
       + (locale.value === 'zh-CN' ? '并发 ' : 'Concurrency ') + deployMaxSeqs.value;
     if (publishToolCallSettingsVisible.value) {
       summary += ' · ' + t('autoToolChoiceShort') + ' ' + (deployEnableAutoToolChoice.value ? t('on') : t('off'))
+        + ' · ' + t('thinkingModeShort') + ' ' + (deployEnableThinking.value ? t('on') : t('off'))
         + ' · Tool ' + effectiveToolCallParser.value
         + ' · Reasoning ' + (effectiveReasoningParser.value || t('parserDisabled'));
     }
@@ -379,6 +380,7 @@ export function applyBaselineDeploymentParameters() {
   deployTensorParallel.value = selectedGpuCount.value;
   deployKvCacheDtype.value = 'auto';
   deployEnableAutoToolChoice.value = false;
+  deployEnableThinking.value = true;
   deployToolCallParser.value = 'auto';
   deployReasoningParser.value = 'auto';
 }

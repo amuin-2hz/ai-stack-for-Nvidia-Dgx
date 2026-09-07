@@ -14,10 +14,14 @@ export function parseComposeRuntimeDeclaration(source: string): DeploymentSuite 
       }))
       .filter((item: any) => item.model_id);
     const endpointPath = String(runtime.primary_endpoint?.path ?? "").trim();
+    const apiModels: string[] = (Array.isArray(runtime.api_models) ? runtime.api_models : [])
+      .map((item: unknown): string => String(item ?? "").trim())
+      .filter((item: string) => Boolean(item));
     return {
       kind: "suite",
       title: String(runtime.title ?? "").trim() || undefined,
       title_zh: String(runtime.title_zh ?? "").trim() || undefined,
+      api_models: apiModels.length ? [...new Set(apiModels)] : undefined,
       publish_policy: runtime.publish_policy === "selected" ? "selected" : "all_ready",
       load_policy: runtime.load_policy === "eager" ? "eager" : "lazy",
       card_mode: runtime.card_mode === "individual" ? "individual" : "grouped",

@@ -67,6 +67,7 @@ export const deployTensorParallel = ref(1);
 export const deployGpuDeviceIds = ref<string[]>(readStoredGpuDeviceIds());
 export const deployKvCacheDtype = ref('auto');
 export const deployEnableAutoToolChoice = ref(false);
+export const deployEnableThinking = ref(true);
 export const deployToolCallParser = ref('auto');
 export const deployReasoningParser = ref('auto');
 export const deploySwapSpace = ref(4);
@@ -706,6 +707,7 @@ export function deploymentArgs() {
     tensor_parallel_size: finiteNumber(deployTensorParallel.value, 1),
     kv_cache_dtype: deployKvCacheDtype.value || 'auto',
     enable_auto_tool_choice: Boolean(deployEnableAutoToolChoice.value),
+    enable_thinking: Boolean(deployEnableThinking.value),
     tool_call_parser: effectiveToolCallParser.value,
     reasoning_parser: effectiveReasoningParser.value,
     max_batch_size: finiteNumber(trtMaxBatchSize.value, 8),
@@ -728,6 +730,9 @@ export function applyDeploymentArgs(args?: Record<string, unknown>) {
   deployKvCacheDtype.value = typeof args.kv_cache_dtype === 'string' ? args.kv_cache_dtype : deployKvCacheDtype.value;
   if ('enable_auto_tool_choice' in args) {
     deployEnableAutoToolChoice.value = args.enable_auto_tool_choice === true || args.enable_auto_tool_choice === 1 || args.enable_auto_tool_choice === 'true';
+  }
+  if ('enable_thinking' in args) {
+    deployEnableThinking.value = args.enable_thinking === true || args.enable_thinking === 1 || args.enable_thinking === 'true';
   }
   if (typeof args.tool_call_parser === 'string') deployToolCallParser.value = args.tool_call_parser || 'auto';
   if (typeof args.reasoning_parser === 'string') deployReasoningParser.value = args.reasoning_parser;

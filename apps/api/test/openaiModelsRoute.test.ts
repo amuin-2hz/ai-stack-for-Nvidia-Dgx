@@ -48,3 +48,34 @@ test("GET /v1/models advertises each runtime's direct endpoint", async () => {
     public_port: 33040
   });
 });
+
+test("GET /v1/models advertises suite API models instead of a selected local model", async () => {
+  const routes = new Map<string, (...args: any[]) => Promise<void>>();
+  const active = {
+    deployment_id: "custom-profile:funasr-gateway:suite",
+    model_id: "sensevoicesmall", status: "running", service_type: "pytorch",
+    runtime: "funasr-gateway", container_name: "custom_funasr_gateway_service",
+    public_port: 8011, base_url: "http://localhost:8011", health_url: "http://localhost:8011/healthz",
+    worker_endpoint: "http://localhost:8011", openai_model: "pipeline:general",
+    suite: {
+      kind: "suite", publish_policy: "all_ready", load_policy: "lazy", card_mode: "grouped",
+      title: "FunASR Gateway", api_models: ["pipeline:general", "pipeline:meeting"],
+      primary_endpoint: { kind: "transcription", method: "POST", path: "/v1/audio/transcriptions" },
+      components: [{ model_id: "sensevoicesmall", role: "asr", required: true }]
+    }
+  };
+  register(
+    (method, path, handler) => routes.set(method + " " + path, handler),
+    { liveActiveDeployments: async () => [active] },
+    { proxyOpenAiRequest: async () => {} }
+  );
+  let raw = "";
+  const response = { writeHead() {}, end(body: string) { raw = body; } };
+  const request = { headers: { host: "192.168.5.40:8888" } };
+  await routes.get("GET /v1/models")!(request, response);
+  const payload = JSON.parse(raw);
+  assert.deepEqual(payload.data.map((item: any) => item.id), ["pipeline:general", "pipeline:meeting"]);
+  assert.equal(payload.data[0].endpoint, "http://192.168.5.40:8011/v1/audio/transcriptions");
+  assert.equal(payload.data[0].service, "funasr-gateway");
+  assert.equal(payload.data.some((item: any) => item.id === "whisper-large-v3"), false);
+});

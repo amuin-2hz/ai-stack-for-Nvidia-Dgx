@@ -121,7 +121,11 @@ async function modelsWithActiveDeployments(
 function applyActiveDeployments(models: ModelRecord[], active: ActiveDeploymentRecord[]): ModelRecord[] {
   const running = active.filter((deployment) => deployment.status === "running");
   return models.map((model) => {
-    const deployment = running.find((item) => item.model_id === model.id || item.openai_model === model.id);
+    const deployment = running.find((item) =>
+      item.model_id === model.id
+      || item.openai_model === model.id
+      || item.suite?.components.some((component) => component.model_id === model.id)
+    );
     if (!deployment) return model;
     return {
       ...model,

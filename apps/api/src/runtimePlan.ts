@@ -48,6 +48,9 @@ export function validateVllmRuntimeArgs(
   if (args.enable_auto_tool_choice !== undefined && typeof args.enable_auto_tool_choice !== "boolean") {
     return { args, detail: "enable_auto_tool_choice must be a boolean." };
   }
+  if (args.enable_thinking !== undefined && typeof args.enable_thinking !== "boolean") {
+    return { args, detail: "enable_thinking must be a boolean." };
+  }
   for (const key of ["tool_call_parser", "reasoning_parser"] as const) {
     const value = args[key];
     if (value !== undefined && (typeof value !== "string" || !VLLM_PARSER_IDENTIFIER.test(value))) {
@@ -115,9 +118,16 @@ export function runtimeCommandFor(
     const enableAutoToolChoice = validatedArgs.args.enable_auto_tool_choice === true;
     const toolCallParser = enableAutoToolChoice ? String(validatedArgs.args.tool_call_parser) : "";
     const reasoningParser = typeof validatedArgs.args.reasoning_parser === "string" ? validatedArgs.args.reasoning_parser : "";
+    const enableThinking = typeof validatedArgs.args.enable_thinking === "boolean"
+      ? validatedArgs.args.enable_thinking
+      : undefined;
+    const defaultChatTemplateKwargs = enableThinking === undefined
+      ? ""
+      : JSON.stringify({ enable_thinking: enableThinking });
     const optionalVllmFlags = (enableAutoToolChoice
       ? " --enable-auto-tool-choice --tool-call-parser \"$VLLM_TOOL_CALL_PARSER\""
-      : "") + (reasoningParser ? " --reasoning-parser \"$VLLM_REASONING_PARSER\"" : "");
+      : "") + (reasoningParser ? " --reasoning-parser \"$VLLM_REASONING_PARSER\"" : "")
+      + (enableThinking === undefined ? "" : " --default-chat-template-kwargs \"$VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS\"");
     const requestedGpuUtilization = Number(args.gpu_memory_utilization ?? process.env.VLLM_GPU_MEMORY_UTILIZATION ?? "0.20");
     const requestedMaxSeqs = Number(args.max_num_seqs ?? process.env.VLLM_MAX_NUM_SEQS ?? "16");
     // OmniCoder-9B needs more than a 20% engine budget for its 17.7 GiB
@@ -145,7 +155,8 @@ export function runtimeCommandFor(
         VLLM_TENSOR_PARALLEL_SIZE: String(args.tensor_parallel_size ?? process.env.VLLM_TENSOR_PARALLEL_SIZE ?? "1"),
         VLLM_KV_CACHE_DTYPE: String(args.kv_cache_dtype ?? process.env.VLLM_KV_CACHE_DTYPE ?? "auto"),
         ...(enableAutoToolChoice ? { VLLM_TOOL_CALL_PARSER: toolCallParser } : {}),
-        ...(reasoningParser ? { VLLM_REASONING_PARSER: reasoningParser } : {})
+        ...(reasoningParser ? { VLLM_REASONING_PARSER: reasoningParser } : {}),
+        ...(enableThinking === undefined ? {} : { VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS: defaultChatTemplateKwargs })
       }
     };
   }

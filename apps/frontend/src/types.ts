@@ -47,6 +47,7 @@ export type DeploymentSuite = {
   kind: "suite";
   title?: string;
   title_zh?: string;
+  api_models?: string[];
   publish_policy: "selected" | "all_ready";
   load_policy: "lazy" | "eager";
   card_mode: "grouped" | "individual";

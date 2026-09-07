@@ -281,7 +281,7 @@ export function deploymentArgsMatch(
   const keys = serviceType === "vllm"
     ? [
         "max_model_len", "gpu_memory_utilization", "max_num_seqs", "tensor_parallel_size", "kv_cache_dtype",
-        "gpu_device_ids", "enable_auto_tool_choice", "tool_call_parser", "reasoning_parser"
+        "gpu_device_ids", "enable_auto_tool_choice", "enable_thinking", "tool_call_parser", "reasoning_parser"
       ]
     : serviceType === "trtllm"
       ? ["max_batch_size", "max_num_tokens", "kv_cache_free_gpu_memory_fraction", "tp_size", "pp_size", "gpu_device_ids"]
