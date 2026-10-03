@@ -34,8 +34,8 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   background: #091018;
 }
@@ -221,7 +221,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 .shell-download-row small { color: #63798a; }
 .theme-dark .shell-download-row small { color: #9bb4c3; }
 .shell-download-glyph { width: 30px; height: 30px; place-items: center; border-radius: 7px; color: #0aa7d8; background: rgba(10,167,216,.1); }
-.app-shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1; min-height: 0; height: calc(100vh - 72px); transition: grid-template-columns .18s ease; }
+.app-shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); flex: 1; min-height: 0; height: auto; transition: grid-template-columns .18s ease; }
 .app-shell.sidebar-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
 .sidebar { padding: 0; display: flex; flex-direction: column; gap: 0; border-right: 1px solid rgba(49, 197, 255, .22); }
 .theme-light .sidebar { background: #f7fbfd; color: #20313d; border-right-color: #d7e7f0; }
@@ -2879,7 +2879,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   padding: 0 0 12px;
 }
 .publish-side-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.publish-side-panel-body { display: grid; gap: 12px; align-content: start; }
+.publish-side-panel-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
 .publish-side-card-title { padding: 0 0 2px; }
 .publish-side-card-title strong { font-size: .84rem; font-weight: 760; }
 .publish-side-model-meta {
@@ -2916,6 +2916,25 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   font-size: .82rem;
   font-weight: 740;
 }
+.publish-parameter-title { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 7px; }
+.publish-parameter-help {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(10,167,216,.4);
+  border-radius: 50%;
+  background: rgba(10,167,216,.08);
+  color: #006b95;
+  font-size: 11px;
+  cursor: help;
+}
+.publish-parameter-help.is-compact { width: 15px; height: 15px; font-size: 9px; flex: none; }
+.publish-parameter-help:hover,
+.publish-parameter-help:focus-visible { border-color: #0aa7d8; color: #0aa7d8; outline: 2px solid transparent; }
+.publish-parameter-tooltip { max-width: 260px; display: grid; gap: 6px; line-height: 1.45; }
+.publish-parameter-tooltip strong { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .publish-parameter-panel-head small {
   color: #63798a;
   font-size: .67rem;
@@ -2946,9 +2965,10 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   font-size: .67rem;
   line-height: 1.45;
 }
-.publish-parameter-panel-body { flex: 1; overflow: auto; display: grid; gap: 10px; align-content: start; }
+.publish-parameter-panel-body { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
 .publish-gpu-router {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 10px;
   border: 1px solid rgba(10,167,216,.2);
@@ -3005,6 +3025,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 .theme-dark .publishParamField > label { color: #7a95ae; }
 .publish-tool-routing {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 10px;
   border: 1px solid rgba(10,167,216,.2);
@@ -3019,12 +3040,17 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 }
 .publish-tool-routing-head > span {
   min-width: 0;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .publish-tool-routing-head strong {
   color: #17384b;
   font-size: .76rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .publish-tool-routing-head small,
 .publish-tool-routing-disabled,
@@ -3032,6 +3058,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   color: #63798a;
   font-size: .64rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .publish-tool-routing-head .ant-switch { flex: none; margin-top: 1px; }
 .publish-tool-routing-disabled {
@@ -3118,6 +3145,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 .theme-dark .publish-parameter-readout strong { color: #edf7fb; }
 .theme-dark .publish-parameter-readout span,
 .theme-dark .publish-parameter-callout strong { color: #4abfff; }
+.theme-dark .publish-parameter-help { color: #4abfff; border-color: rgba(74,190,255,.5); }
 .theme-dark .publish-parameter-panel-head small,
 .theme-dark .publish-parameter-callout span { color: #9bb4c3; }
 .theme-dark .publish-loaded-card { background: rgba(8,16,24,.52); border-color: rgba(53,88,230,.8); }
@@ -5519,18 +5547,19 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   background: #091018;
 }
 .publish-console-layout {
-  grid-template-columns: minmax(720px, 1fr) 260px;
-  column-gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  column-gap: 6px;
   row-gap: 0;
+  padding-inline: 6px;
 }
 .publish-console-main {
-  margin: 10px 8px 0 0;
-  padding-right: 8px;
+  margin: 10px 0 0;
+  padding-right: 3px;
   border-right: 1px solid rgba(92,132,154,.12);
 }
 .publish-console-side {
   border-left: 0;
-  padding: 14px 16px 14px 12px;
+  padding: 14px 4px 14px;
   width: 100%;
   max-width: 100%;
   contain: inline-size;
@@ -5585,10 +5614,10 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
   width: 100%;
   min-width: 0;
 }
-.publish-console-side .param-control .ant-slider { min-width: 0; margin-inline: 4px; }
+.publish-console-side .param-control .ant-slider { min-width: 0; margin-inline: 10px; }
 .publish-topbar-prototype {
   min-height: 46px;
-  margin: 0 8px 0 0;
+  margin: 0;
   padding: 0 10px;
   border-radius: 12px;
 }
@@ -5634,8 +5663,8 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 .theme-dark .chatPanelIcon { color: #b9bec8; }
 @media (max-width: 980px) {
   .publish-console-layout { grid-template-columns: minmax(0, 1fr); }
-  .publish-console-main { border-right: 0; margin-right: 14px; padding-right: 0; }
-  .publish-topbar-prototype { margin-right: 14px; }
+  .publish-console-main { border-right: 0; padding-right: 0; }
+  .publish-console-side { padding-inline: 0; }
 }
 
 /* Publish log bottom drawer */

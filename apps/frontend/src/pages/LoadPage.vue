@@ -6,7 +6,7 @@
 -->
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ArrowsAltOutlined, CopyOutlined, DeleteOutlined, MoreOutlined, PlusOutlined, ShrinkOutlined } from '@ant-design/icons-vue';
+import { ArrowsAltOutlined, CopyOutlined, DeleteOutlined, ExclamationOutlined, MoreOutlined, PlusOutlined, ShrinkOutlined } from '@ant-design/icons-vue';
 import {
   locale, t, view, deployOpenAiModel, deployModelId,
   logCollapsed, copyText, loadContainerLogs, actionTargetName, models, modelCatalogLoading, containers, runningDeployments,
@@ -501,17 +501,24 @@ function deploymentCurlCommand(deployment: any) {
             <div v-if="!publishRequiresAudioRuntime && !publishSelectedRuntime?.profile_id" class="publish-parameter-panel">
               <div class="publish-parameter-panel-head">
                 <div>
-                  <strong>{{ locale === 'zh-CN' ? '运行参数' : 'Runtime parameters' }}</strong>
+                  <div class="publish-parameter-title">
+                    <strong>{{ locale === 'zh-CN' ? '运行参数' : 'Runtime parameters' }}</strong>
+                    <a-tooltip v-if="publishParameterSummary" placement="topRight">
+                      <template #title>
+                        <div class="publish-parameter-tooltip">
+                          <strong>{{ publishParameterSummary }}</strong>
+                          <span>{{ locale === 'zh-CN' ? '点击发布后，这组参数会写入任务；成功配置会在下次选择此模型时自动恢复。' : 'These values are written to the publish task; successful settings are restored next time.' }}</span>
+                        </div>
+                      </template>
+                      <button type="button" class="publish-parameter-help" :aria-label="locale === 'zh-CN' ? '查看运行参数提示' : 'Show runtime parameter details'"><ExclamationOutlined /></button>
+                    </a-tooltip>
+                  </div>
                   <small>{{ publishParameterSourceLabel }}</small>
                 </div>
                 <div class="publish-parameter-presets">
                   <a-button size="small" @click="applyBaselineDeploymentParameters">{{ locale === 'zh-CN' ? '基础值' : 'Baseline' }}</a-button>
                   <a-button size="small" @click="applyModelMaxContext">{{ locale === 'zh-CN' ? '上下文拉满' : 'Max context' }}</a-button>
                 </div>
-              </div>
-              <div v-if="publishParameterSummary" class="publish-parameter-callout">
-                <strong>{{ publishParameterSummary }}</strong>
-                <span>{{ locale === 'zh-CN' ? '点击发布后，这组参数会写入任务；成功配置会在下次选择此模型时自动恢复。' : 'These values are written to the publish task; successful settings are restored next time.' }}</span>
               </div>
               <div class="publish-parameter-panel-body">
                 <div v-if="gpuDeviceOptions.length" class="publish-gpu-router">
@@ -543,9 +550,11 @@ function deploymentCurlCommand(deployment: any) {
                     <div class="publish-tool-routing-head">
                       <span>
                         <strong>{{ t('autoToolChoice') }}</strong>
-                        <small>{{ t('autoToolChoiceHint') }}</small>
+                        <a-tooltip :title="t('autoToolChoiceHint')">
+                          <button type="button" class="publish-parameter-help is-compact" :aria-label="t('autoToolChoiceHint')"><ExclamationOutlined /></button>
+                        </a-tooltip>
                       </span>
-                      <a-switch v-model:checked="deployEnableAutoToolChoice" />
+                      <a-switch v-model:checked="deployEnableAutoToolChoice" size="small" />
                     </div>
                     <div v-if="deployEnableAutoToolChoice" class="publishParamField">
                       <label>{{ t('toolCallParser') }}</label>
@@ -555,9 +564,11 @@ function deploymentCurlCommand(deployment: any) {
                     <div class="publish-tool-routing-head">
                       <span>
                         <strong>{{ t('thinkingMode') }}</strong>
-                        <small>{{ t('thinkingModeHint') }}</small>
+                        <a-tooltip :title="t('thinkingModeHint')">
+                          <button type="button" class="publish-parameter-help is-compact" :aria-label="t('thinkingModeHint')"><ExclamationOutlined /></button>
+                        </a-tooltip>
                       </span>
-                      <a-switch v-model:checked="deployEnableThinking" />
+                      <a-switch v-model:checked="deployEnableThinking" size="small" />
                     </div>
                     <div class="publishParamField">
                       <label>{{ t('reasoningParser') }}</label>
