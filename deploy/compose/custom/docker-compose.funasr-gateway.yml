@@ -113,42 +113,7 @@ services:
     entrypoint: ["/bin/bash", "-lc"]
     command:
       - >-
-        set -euo pipefail;
-        gpu_asr_dir=/workspace/models/iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch;
-        mkdir -p "$$gpu_asr_dir";
-        cp -au /models/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch/. "$$gpu_asr_dir/";
-        if [[ -f "$$gpu_asr_dir/model" && ! -f "$$gpu_asr_dir/model.torchscript" ]]; then
-          mv "$$gpu_asr_dir/model" "$$gpu_asr_dir/model.torchscript";
-        fi;
-        if [[ ! -f "$$gpu_asr_dir/model.torchscript" ]]; then
-          python -m funasr.download.runtime_sdk_download_tool
-          --type torchscript
-          --quantize false
-          --model-name "$$gpu_asr_dir"
-          --export-dir ./
-          --model_revision v2.0.5;
-          if [[ -f "$$gpu_asr_dir/model" && ! -f "$$gpu_asr_dir/model.torchscript" ]]; then
-            mv "$$gpu_asr_dir/model" "$$gpu_asr_dir/model.torchscript";
-          fi;
-        fi;
-        test -s "$$gpu_asr_dir/model.torchscript";
-        exec /workspace/FunASR/runtime/websocket/build-gpu/bin/funasr-wss-server
-        --download-model-dir /workspace/models
-        --model-dir "$$gpu_asr_dir"
-        --vad-dir /workspace/models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx
-        --punc-dir /workspace/models/iic/punc_ct-transformer_cn-en-common-vocab471067-large-onnx
-        --itn-dir /workspace/models/thuduj12/fst_itn_zh
-        --lm-dir /models/speech_ngram_lm_zh-cn-ai-wesp-fst
-        --hotword /workspace/FunASR/runtime/websocket/hotwords.txt
-        --decoder-thread-num ${FUNASR_NGRAM_DECODER_THREADS:-4}
-        --model-thread-num ${FUNASR_NGRAM_MODEL_THREADS:-1}
-        --io-thread-num ${FUNASR_NGRAM_IO_THREADS:-1}
-        --batch-size ${FUNASR_NGRAM_BATCH_SIZE:-1}
-        --port 10095
-        --certfile ""
-        --quantize false
-        --bladedisc false
-        --gpu
+        set -euo pipefail; gpu_asr_dir=/workspace/models/iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch; mkdir -p "$$gpu_asr_dir"; cp -au /models/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch/. "$$gpu_asr_dir/"; if [[ -f "$$gpu_asr_dir/model" && ! -f "$$gpu_asr_dir/model.torchscript" ]]; then mv "$$gpu_asr_dir/model" "$$gpu_asr_dir/model.torchscript"; fi; if [[ ! -f "$$gpu_asr_dir/model.torchscript" ]]; then python -m funasr.download.runtime_sdk_download_tool --type torchscript --quantize false --model-name "$$gpu_asr_dir" --export-dir ./ --model_revision v2.0.5; if [[ -f "$$gpu_asr_dir/model" && ! -f "$$gpu_asr_dir/model.torchscript" ]]; then mv "$$gpu_asr_dir/model" "$$gpu_asr_dir/model.torchscript"; fi; fi; test -s "$$gpu_asr_dir/model.torchscript"; exec /workspace/FunASR/runtime/websocket/build-gpu/bin/funasr-wss-server --download-model-dir /workspace/models --model-dir "$$gpu_asr_dir" --vad-dir /workspace/models/iic/speech_fsmn_vad_zh-cn-16k-common-onnx --punc-dir /workspace/models/iic/punc_ct-transformer_cn-en-common-vocab471067-large-onnx --itn-dir /workspace/models/thuduj12/fst_itn_zh --lm-dir /models/speech_ngram_lm_zh-cn-ai-wesp-fst --hotword /workspace/FunASR/runtime/websocket/hotwords.txt --decoder-thread-num ${FUNASR_NGRAM_DECODER_THREADS:-4} --model-thread-num ${FUNASR_NGRAM_MODEL_THREADS:-1} --io-thread-num ${FUNASR_NGRAM_IO_THREADS:-1} --batch-size ${FUNASR_NGRAM_BATCH_SIZE:-1} --port 10095 --certfile "" --quantize false --bladedisc false --gpu
     healthcheck:
       test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/10095'"]
       interval: 20s
