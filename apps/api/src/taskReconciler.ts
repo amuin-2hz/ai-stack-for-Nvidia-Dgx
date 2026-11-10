@@ -218,19 +218,23 @@ async function reconcileDeployRuntimeTask(task: TaskRecord, workspaceRoot: strin
   if (!isRuntimeDeployment || !["running", "failed"].includes(task.status)) return undefined;
   const runtimePlan = task.metadata?.runtime_plan as { current_stage?: unknown; stage_statuses?: Record<string, string> } | undefined;
   const runtimeStage = typeof runtimePlan?.current_stage === "string" ? runtimePlan.current_stage : "";
-  const customStartStillLaunching = isCustomProfile && runtimeStage === "start"
-    && ((task.status === "running" && taskIsWithinStartupGrace(task)) || await isTaskProcessActive(task));
-  if (customStartStillLaunching) {
+  // A deployment removes an older container before starting its replacement. During
+  // prepare/pull/start the running task can therefore legitimately have no container.
+  // Keep it loading so polling clients do not render a transient failure.
+  const taskProcessActive = await isTaskProcessActive(task);
+  const runtimeStillLaunching = runtimeLaunchShouldRemainRunning(task, runtimeStage, taskProcessActive);
+  if (runtimeStillLaunching) {
     if (task.status === "failed") {
+      const launchProgress = { prepare: 10, pull: 30, start: 55 }[runtimeStage] ?? 10;
       const updated = await updateTask(task.id, {
         status: "running",
         metadata: {
           ...task.metadata,
           runtime_plan: {
             ...runtimePlan,
-            current_stage: "start",
-            progress_percent: 10,
-            stage_statuses: { ...(runtimePlan?.stage_statuses ?? {}), start: "running" }
+            current_stage: runtimeStage,
+            progress_percent: launchProgress,
+            stage_statuses: { ...(runtimePlan?.stage_statuses ?? {}), [runtimeStage]: "running" }
           }
         },
         error: undefined,
@@ -293,6 +297,20 @@ async function reconcileDeployRuntimeTask(task: TaskRecord, workspaceRoot: strin
     return updated ? await enrichTaskProgress(updated, workspaceRoot) : { ...task, status: "running", error: undefined };
   }
   return await enrichTaskProgress(task, workspaceRoot);
+}
+
+export function runtimeLaunchShouldRemainRunning(
+  task: Pick<TaskRecord, "status" | "created_at">,
+  runtimeStage: string,
+  taskProcessActive: boolean,
+  now = Date.now()
+): boolean {
+  if (!["prepare", "pull", "start"].includes(runtimeStage)) return false;
+  if (task.status === "failed") return taskProcessActive;
+  if (task.status !== "running") return false;
+  const created = Date.parse(task.created_at ?? "");
+  const withinStartupGrace = Number.isFinite(created) && now - created < 90_000;
+  return withinStartupGrace || taskProcessActive;
 }
 
 async function deployContainerIsRunning(containerName: string): Promise<boolean> {

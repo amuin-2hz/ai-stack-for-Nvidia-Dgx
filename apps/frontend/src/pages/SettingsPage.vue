@@ -16,6 +16,7 @@ import {
   settingsTab, saveWorkbenchSettings, toggleLanAccess, saveProxySettings,
   proxyEnabled, proxyScope, proxyHttp, proxyHttps, proxyAll, proxyNo,
 } from '../composables/useSettings';
+import { appBuildDate, appVersion } from '../appMetadata';
 
 const isDark = computed(() => themeMode.value === 'dark');
 const lanAccessUrls = computed(() => {
@@ -89,7 +90,7 @@ function saveRemoteAdminToken() {
         <button :class="['settingsNavButton', settingsTab==='proxy'?'isActive':'']" @click="settingsTab='proxy'"><span class="settingsNavDot"></span>{{ locale==='zh-CN'?'下载代理':'Download Proxy' }}</button>
         <button :class="['settingsNavButton', settingsTab==='about'?'isActive':'']" @click="settingsTab='about'"><span class="settingsNavDot"></span>{{ t('settingsAbout') }}</button>
       </div>
-      <div class="settingsAccountCard"><div class="settingsAccountAvatar">A</div><div><strong>{{ t('workstation') }}</strong><span>v1.1.1</span></div></div>
+      <div class="settingsAccountCard"><div class="settingsAccountAvatar">A</div><div><strong>{{ t('workstation') }}</strong><span>v{{ appVersion }}</span></div></div>
     </aside>
 
     <!-- 右侧详情 -->
@@ -191,8 +192,8 @@ function saveRemoteAdminToken() {
           <div class="settingsSection">
             <h2 class="settingsSectionTitle">{{ locale==='zh-CN'?'关于':'About' }}</h2>
             <div class="settingsList">
-              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'版本':'Version' }}</div></div><div class="settingControl settingValueText">v1.1.1</div></div>
-              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'构建日期':'Build Date' }}</div></div><div class="settingControl settingValueText">2026.06</div></div>
+              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'版本':'Version' }}</div></div><div class="settingControl settingValueText">v{{ appVersion }}</div></div>
+              <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'构建日期':'Build Date' }}</div></div><div class="settingControl settingValueText">{{ appBuildDate }}</div></div>
               <div class="settingRow"><div class="settingMain"><div class="settingLabel">{{ locale==='zh-CN'?'许可协议':'License' }}</div></div><div class="settingControl settingValueText">MIT</div></div>
             </div>
           </div>

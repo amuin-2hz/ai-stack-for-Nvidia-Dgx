@@ -34,6 +34,11 @@ export interface RuntimeCommand {
 }
 
 const VLLM_PARSER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+const THINKING_DISABLED_MODELS = /\bqwen[-_ ]?3(?:[._-]?8)?[-_ ]?(?:27|28)b\b/i;
+
+export function defaultVllmThinkingMode(modelId: string, openaiModel: string): boolean | undefined {
+  return THINKING_DISABLED_MODELS.test(modelId + " " + openaiModel) ? false : undefined;
+}
 
 export function recommendedVllmToolCallParser(modelId: string, openaiModel: string): string | undefined {
   const modelName = modelId + " " + openaiModel;
@@ -45,26 +50,30 @@ export function validateVllmRuntimeArgs(
   modelId: string,
   openaiModel: string
 ): { args: Record<string, unknown>; detail?: string } {
-  if (args.enable_auto_tool_choice !== undefined && typeof args.enable_auto_tool_choice !== "boolean") {
-    return { args, detail: "enable_auto_tool_choice must be a boolean." };
+  const defaultThinking = defaultVllmThinkingMode(modelId, openaiModel);
+  const normalizedArgs = args.enable_thinking === undefined && defaultThinking !== undefined
+    ? { ...args, enable_thinking: defaultThinking }
+    : args;
+  if (normalizedArgs.enable_auto_tool_choice !== undefined && typeof normalizedArgs.enable_auto_tool_choice !== "boolean") {
+    return { args: normalizedArgs, detail: "enable_auto_tool_choice must be a boolean." };
   }
-  if (args.enable_thinking !== undefined && typeof args.enable_thinking !== "boolean") {
-    return { args, detail: "enable_thinking must be a boolean." };
+  if (normalizedArgs.enable_thinking !== undefined && typeof normalizedArgs.enable_thinking !== "boolean") {
+    return { args: normalizedArgs, detail: "enable_thinking must be a boolean." };
   }
   for (const key of ["tool_call_parser", "reasoning_parser"] as const) {
-    const value = args[key];
+    const value = normalizedArgs[key];
     if (value !== undefined && (typeof value !== "string" || !VLLM_PARSER_IDENTIFIER.test(value))) {
-      return { args, detail: key + " must be a valid parser identifier." };
+      return { args: normalizedArgs, detail: key + " must be a valid parser identifier." };
     }
   }
-  if (args.enable_auto_tool_choice === true) {
-    const parser = args.tool_call_parser ?? recommendedVllmToolCallParser(modelId, openaiModel);
+  if (normalizedArgs.enable_auto_tool_choice === true) {
+    const parser = normalizedArgs.tool_call_parser ?? recommendedVllmToolCallParser(modelId, openaiModel);
     if (!parser) {
-      return { args, detail: "tool_call_parser is required when enable_auto_tool_choice is enabled for this model." };
+      return { args: normalizedArgs, detail: "tool_call_parser is required when enable_auto_tool_choice is enabled for this model." };
     }
-    return { args: { ...args, tool_call_parser: parser } };
+    return { args: { ...normalizedArgs, tool_call_parser: parser } };
   }
-  return { args };
+  return { args: normalizedArgs };
 }
 
 export function createRuntimePlan(

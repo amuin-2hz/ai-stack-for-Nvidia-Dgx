@@ -26,6 +26,7 @@ services:
       - ${MODELS_ROOT:-../../../models}/qwen3-tts-12hz-1.7b-voicedesign:/models/qwen3-tts-12hz-1.7b-voicedesign:ro
       - ${MODELS_ROOT:-../../../models}/qwen3-tts-12hz-1.7b-base:/models/qwen3-tts-12hz-1.7b-base:ro
       - ../../../cache:/cache
+      - ../../../cache/debug:/cache/debug
     environment:
       - NVIDIA_VISIBLE_DEVICES=${GPU_VISIBLE_DEVICES:-all}
       - OPENAI_MODEL=${OPENAI_MODEL:-qwen3-tts-12hz-1.7b-customvoice}
@@ -33,9 +34,10 @@ services:
       - QWEN3_TTS_DEVICE=${QWEN3_TTS_DEVICE:-cuda:0}
       - QWEN3_TTS_DTYPE=${QWEN3_TTS_DTYPE:-bfloat16}
       - QWEN3_TTS_ATTN_IMPLEMENTATION=${QWEN3_TTS_ATTN_IMPLEMENTATION:-auto}
-      - QWEN3_TTS_MODEL_CACHE_SIZE=${QWEN3_TTS_MODEL_CACHE_SIZE:-1}
+      - QWEN3_TTS_MODEL_CACHE_SIZE=${QWEN3_TTS_MODEL_CACHE_SIZE:-3}
       - QWEN3_TTS_MAX_CONCURRENCY=${QWEN3_TTS_MAX_CONCURRENCY:-1}
-      - QWEN3_TTS_EAGER_LOAD=${QWEN3_TTS_EAGER_LOAD:-true}
+      - QWEN3_TTS_EAGER_LOAD=${QWEN3_TTS_EAGER_LOAD:-false}
+      - QWEN3_TTS_DEBUG_DUMP=${QWEN3_TTS_DEBUG_DUMP:-1}
       - QWEN3_TTS_REQUIRE_COMPLETE_MARKER=${QWEN3_TTS_REQUIRE_COMPLETE_MARKER:-true}
       - QWEN3_TTS_MAX_INPUT_CHARS=${QWEN3_TTS_MAX_INPUT_CHARS:-4000}
       - QWEN3_TTS_MAX_REFERENCE_AUDIO_BYTES=${QWEN3_TTS_MAX_REFERENCE_AUDIO_BYTES:-15728640}

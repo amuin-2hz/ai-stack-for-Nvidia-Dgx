@@ -25,6 +25,7 @@ import {
   selectedTaskId, loadTaskLog, activeTasks, tasks, taskProgress, taskRuntimePlanSummary
 } from './useApp';
 import { customComposeProfiles } from './useServices';
+import { defaultThinkingMode } from '../modelDefaults';
 
 // ── 工作面板 Tab ─────────────────────────────────────────────────────────
 export const publishPanelTab = ref<'info' | 'load' | 'inference'>('info');
@@ -380,7 +381,7 @@ export function applyBaselineDeploymentParameters() {
   deployTensorParallel.value = selectedGpuCount.value;
   deployKvCacheDtype.value = 'auto';
   deployEnableAutoToolChoice.value = false;
-  deployEnableThinking.value = true;
+  deployEnableThinking.value = defaultThinkingMode(publishActiveModel.value);
   deployToolCallParser.value = 'auto';
   deployReasoningParser.value = 'auto';
 }

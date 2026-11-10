@@ -16,12 +16,14 @@ const extensions = [
       "sensevoicesmall",
       "speech_fsmn_vad_zh-cn-16k-common-pytorch",
       "speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+      "speech_ngram_lm_zh-cn-ai-wesp-fst",
       "punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
       "speech_campplus_sv_zh-cn_16k-common",
       "speech_campplus_speaker-diarization_common"
     ],
     files: [
       "deploy/dockerfiles/custom/funasr-gateway.Dockerfile",
+      "deploy/dockerfiles/custom/funasr-runtime-gpu.Dockerfile",
       "deploy/templates/ai_stack_funasr_gateway.py"
     ]
   },

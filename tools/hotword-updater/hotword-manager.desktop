@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=热词更新器
+Name[en]=Hotword Updater
+Comment=编辑 AI Stack 的 ASR 热词表与 TTS 读音词典
+Exec=/usr/bin/python3 %h/ai-stack/tools/hotword-updater/hotword_gui.py
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;
+StartupNotify=true

@@ -7,6 +7,7 @@ import binascii
 import gc
 import importlib.util
 import io
+import json
 import os
 import re
 import subprocess
@@ -17,6 +18,7 @@ from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator, Literal
+from urllib.parse import quote
 
 import soundfile as sf
 from fastapi import FastAPI, HTTPException
@@ -116,6 +118,7 @@ class SpeechRequest(BaseModel):
     temperature: float | None = Field(default=None, gt=0, le=2)
     stream: bool = False
     stream_chunk_chars: int = Field(default=120, ge=20, le=1000)
+    debug: bool = False
 
 
 app = FastAPI(title="AMUIN Qwen3-TTS Gateway", version="1.1.0")
@@ -141,7 +144,8 @@ def _aliases() -> dict[str, ModelSpec]:
         }[spec.kind]).lower()] = spec
     primary = aliases.get(_primary_model_id().lower())
     served_alias = os.environ.get("OPENAI_MODEL", "").strip()
-    if primary and served_alias:
+    # 只有当别名不与真实模型 id 冲突时才注册，否则会把 customvoice 请求劫持到 base
+    if primary and served_alias and served_alias.lower() not in aliases:
         aliases[served_alias.lower()] = primary
     return aliases
 
@@ -217,6 +221,18 @@ def models() -> dict[str, Any]:
     }
 
 
+@app.get("/v1/lexicon")
+def lexicon() -> dict[str, Any]:
+    return {
+        "path": str(LEXICON_PATH),
+        "count": len(_load_lexicon()),
+        "entries": [
+            {"term": term, "say": say, "note": note}
+            for term, say, note in _load_lexicon()
+        ],
+    }
+
+
 @app.get("/v1/audio/voices")
 def voices() -> dict[str, Any]:
     return {
@@ -224,7 +240,7 @@ def voices() -> dict[str, Any]:
         "data": [
             {"id": speaker, "object": "voice", "model": MODEL_SPECS[0].id}
             for speaker in SUPPORTED_SPEAKERS.values()
-        ],
+        ] + _list_saved_voices(),
     }
 
 
@@ -333,6 +349,46 @@ def _reference_audio_file(value: str) -> str:
         handle.close()
 
 
+VOICE_DIR = Path(os.environ.get("QWEN3_TTS_VOICE_DIR", "/cache/voices"))
+
+
+def _voice_path(voice_id: str) -> Path:
+    safe = re.sub(r"[^0-9A-Za-z_.\-\u4e00-\u9fff]", "_", (voice_id or "").strip()).strip("._")
+    return VOICE_DIR / f"{safe or 'voice'}.qvoice"
+
+
+def _list_saved_voices() -> list[dict[str, Any]]:
+    if not VOICE_DIR.is_dir():
+        return []
+    return [
+        {"id": path.stem, "object": "voice", "kind": "cloned",
+         "model": "qwen3-tts-12hz-1.7b-base"}
+        for path in sorted(VOICE_DIR.glob("*.qvoice"))
+    ]
+
+
+def _load_clone_prompt(name: str):
+    """读取 .qvoice（ref_code + 说话人向量），转成 generate_voice_clone 需要的 prompt"""
+    import torch
+    from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
+
+    path = _voice_path(name)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"unknown voice: {name}")
+    obj = torch.load(path, map_location="cpu", weights_only=True)
+    if isinstance(obj, list):
+        return obj
+    return [
+        VoiceClonePromptItem(
+            ref_code=obj.get("ref_code"),
+            ref_spk_embedding=obj["ref_spk_embedding"],
+            x_vector_only_mode=bool(obj.get("x_vector_only_mode", False)),
+            icl_mode=bool(obj.get("icl_mode", True)),
+            ref_text=obj.get("ref_text"),
+        )
+    ]
+
+
 def _generation_kwargs(payload: SpeechRequest) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key in ("max_new_tokens", "top_p", "temperature"):
@@ -343,6 +399,7 @@ def _generation_kwargs(payload: SpeechRequest) -> dict[str, Any]:
 
 
 def _generate(payload: SpeechRequest, spec: ModelSpec) -> tuple[Any, int]:
+    payload = payload.model_copy(update={"input": _normalize_tts_text(payload.input)})
     max_chars = int(os.environ.get("QWEN3_TTS_MAX_INPUT_CHARS", "4000"))
     if len(payload.input) > max_chars:
         raise HTTPException(status_code=413, detail=f"input exceeds the {max_chars}-character limit")
@@ -377,6 +434,15 @@ def _generate(payload: SpeechRequest, spec: ModelSpec) -> tuple[Any, int]:
                     **kwargs,
                 )
             else:
+                saved_voice = (payload.voice or "").strip()
+                if saved_voice and not payload.reference_audio and _voice_path(saved_voice).is_file():
+                    wavs, sample_rate = model.generate_voice_clone(
+                        text=payload.input,
+                        language=language,
+                        voice_clone_prompt=_load_clone_prompt(saved_voice),
+                        **kwargs,
+                    )
+                    return _shape_waveform(wavs[0], int(sample_rate)), int(sample_rate)
                 if not payload.reference_audio:
                     raise HTTPException(status_code=400, detail="reference_audio is required for the Base voice-clone model")
                 if not payload.x_vector_only_mode and not (payload.reference_text or "").strip():
@@ -398,7 +464,54 @@ def _generate(payload: SpeechRequest, spec: ModelSpec) -> tuple[Any, int]:
                 Path(reference_path).unlink(missing_ok=True)
     if not wavs:
         raise RuntimeError("Qwen3-TTS returned no audio")
-    return wavs[0], int(sample_rate)
+    return _shape_waveform(wavs[0], int(sample_rate)), int(sample_rate)
+
+
+DEBUG_DIR = Path(os.environ.get("QWEN3_TTS_DEBUG_DIR", "/cache/debug"))
+_DEBUG_ALWAYS = os.environ.get("QWEN3_TTS_DEBUG_DUMP", "0").lower() in ("1", "true", "yes")
+_DEBUG_KEEP = int(os.environ.get("QWEN3_TTS_DEBUG_KEEP", "50"))
+
+
+def _debug_dump(request_id: str, response_format: str, data: bytes) -> None:
+    print(f"[debug] dump {request_id} -> {DEBUG_DIR} ({len(data)} bytes)", flush=True)
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    (DEBUG_DIR / f"{request_id}.{response_format}").write_bytes(data)
+    try:
+        files = sorted(DEBUG_DIR.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in files[_DEBUG_KEEP:]:
+            old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+TRIM_MARGIN_SEC = float(os.environ.get("QWEN3_TTS_TRIM_MARGIN", "0.05"))
+TRIM_THRESHOLD = float(os.environ.get("QWEN3_TTS_TRIM_THRESHOLD", "0.012"))
+TRIM_FADE_SEC = float(os.environ.get("QWEN3_TTS_TRIM_FADE", "0.03"))
+
+
+def _shape_waveform(waveform: Any, sample_rate: int) -> Any:
+    """裁掉首尾静音并加淡入淡出，避免多段拼接时出现“噗/咔”声。"""
+    import numpy as np
+
+    x = np.asarray(waveform, dtype=np.float32).reshape(-1)
+    if x.size < int(0.05 * sample_rate):
+        return x
+
+    env = np.abs(x)
+    above = np.where(env > TRIM_THRESHOLD)[0]
+    if above.size:
+        margin = int(TRIM_MARGIN_SEC * sample_rate)
+        start = max(0, int(above[0]) - margin)
+        end = min(x.size, int(above[-1]) + margin)
+        if end - start > int(0.05 * sample_rate):
+            x = x[start:end].copy()
+
+    n = min(int(TRIM_FADE_SEC * sample_rate), max(1, x.size // 2))
+    if n > 1:
+        ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+        x[:n] *= ramp
+        x[-n:] *= ramp[::-1]
+    return x
 
 
 def _wav_bytes(waveform: Any, sample_rate: int) -> bytes:
@@ -447,35 +560,186 @@ def _encode_audio(wav: bytes, response_format: str, speed: float, sample_rate: i
     return completed.stdout
 
 
-def _split_stream_text(text: str, max_chars: int) -> list[str]:
-    """Split text at natural boundaries while enforcing a hard chunk limit."""
+_MARKDOWN_RULES = [
+    (re.compile(r"!\[[^\]]*\]\([^)]*\)"), ""),
+    (re.compile(r"\[([^\]]*)\]\([^)]*\)"), r"\1"),
+    (re.compile(r"(`{1,3})(.+?)\1", re.S), r"\2"),
+    (re.compile(r"(\*\*|__)(.+?)\1", re.S), r"\2"),
+    (re.compile(r"(?<![\w*])(\*|_)(?!\s)(.+?)(?<!\s)\1(?![\w*])", re.S), r"\2"),
+    (re.compile(r"~~(.+?)~~", re.S), r"\1"),
+    (re.compile(r"^\s{0,3}#{1,6}\s*", re.M), ""),
+    (re.compile(r"^\s{0,3}[-*+•]\s+", re.M), ""),
+    (re.compile(r"^\s{0,3}>\s?", re.M), ""),
+    (re.compile(r"^\s{0,3}\|?(?:\s*:?-{3,}:?\s*\|)+\s*$", re.M), ""),
+]
 
-    normalized = text.strip()
+
+LEXICON_PATH = Path(os.environ.get("QWEN3_TTS_LEXICON", "/cache/lexicon.json"))
+_LEXICON_CACHE: dict[str, Any] = {"mtime": None, "entries": []}
+
+
+def _load_lexicon() -> list[tuple[str, str, str]]:
+    """读取发音词典，按文件 mtime 热更新；长词优先。"""
+    try:
+        stat = LEXICON_PATH.stat()
+    except OSError:
+        return []
+    if _LEXICON_CACHE["mtime"] != stat.st_mtime:
+        entries: list[tuple[str, str, str]] = []
+        try:
+            data = json.loads(LEXICON_PATH.read_text(encoding="utf-8"))
+            for item in data.get("entries", []):
+                term = str(item.get("term", "")).strip()
+                say = str(item.get("say", "")).strip()
+                if term and say:
+                    entries.append((term, say, str(item.get("note", ""))))
+        except Exception:
+            entries = []
+        entries.sort(key=lambda item: len(item[0]), reverse=True)
+        _LEXICON_CACHE["entries"] = entries
+        _LEXICON_CACHE["mtime"] = stat.st_mtime
+    return _LEXICON_CACHE["entries"]
+
+
+def _apply_lexicon(text: str) -> str:
+    """把词表里的写法替换成“读得对”的写法。英文按单词边界、忽略大小写。"""
+    for term, say, _note in _load_lexicon():
+        if term.isascii() and term.replace(" ", "").isalnum():
+            text = re.sub(
+                rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
+                say,
+                text,
+                flags=re.IGNORECASE,
+            )
+        else:
+            text = text.replace(term, say)
+    return text
+
+
+def _lexicon_hits(text: str) -> list[str]:
+    hits = []
+    lowered = text.lower()
+    for term, say, _note in _load_lexicon():
+        if term in text or (term.isascii() and term.lower() in lowered):
+            hits.append(f"{term}=>{say}")
+    return hits[:10]
+
+
+CJK_RANGE = "\\u4e00-\\u9fff"
+
+
+def _tidy_spacing(value: str) -> str:
+    """模板类文本里常见“年 年 月 月 日 日 ， ”这种空格，会被念成一顿一顿。"""
+    value = re.sub(r"[ \t\u3000]+", " ", value)
+    # 汉字之间、汉字与中文标点之间的空格
+    value = re.sub(rf"(?<=[{CJK_RANGE}]) (?=[{CJK_RANGE}])", "", value)
+    value = re.sub(rf"(?<=[{CJK_RANGE}]) (?=[，。！？；：、）”’」』》])", "", value)
+    value = re.sub(rf"(?<=[（“‘「『《]) (?=[{CJK_RANGE}])", "", value)
+    # 关闭符号与汉字之间、汉字与开启符号之间的空格（“（一） 任务一”这类）
+    value = re.sub(rf"(?<=[）”’」』》]) (?=[{CJK_RANGE}])", "", value)
+    value = re.sub(rf"(?<=[{CJK_RANGE}]) (?=[（“‘「『《])", "", value)
+    # 被空格夹住的中文标点
+    value = re.sub(r" ?([，。！？；：、]) ?", r"\1", value)
+    # 连续重复的标点
+    value = re.sub(r"([，。！？；：、])\1+", r"\1", value)
+    return value.strip()
+
+
+def _normalize_tts_text(text: str) -> str:
+    """朗读前清洗：保留正文，去掉 Markdown/零宽字符，压平空白。"""
+    value = (text or "").replace("\r\n", "\n")
+    value = value.replace("\u200b", "").replace("\ufeff", "")
+    for pattern, repl in _MARKDOWN_RULES:
+        value = pattern.sub(repl, value)
+    value = value.replace("\n", " ")
+    value = re.sub(r"[ \t\u00a0]+", " ", value).strip()
+    # 去掉首尾标点：业务侧会发“，XXX。”这类片段，开头的逗号会被念成一声“噗”
+    value = re.sub(r"^[，。！？；：、,.!?;:…—－\-\s]+", "", value)
+    value = re.sub(r"[，、；：,;:\s]+$", "", value)
+    value = _tidy_spacing(value)
+    value = _apply_lexicon(value)
+    return value
+
+
+_OPEN_CHARS = "“‘「『（(【《"
+_CLOSE_CHARS = "”’」』）)】》"
+_SOFT_CHARS = "，、；：,;:"
+
+
+def _is_ascii_word(ch: str) -> bool:
+    return ch.isascii() and ch.isalnum()
+
+
+def _join_parts(a: str, b: str) -> str:
+    if not a:
+        return b
+    if not b:
+        return a
+    if _is_ascii_word(a[-1]) and _is_ascii_word(b[0]):
+        return a + " " + b
+    return a + b
+
+
+def _split_long_piece(piece: str, max_chars: int) -> list[str]:
+    """长句在软标点处断开；引号/括号未闭合时宁可变长也不切。"""
+    if len(piece) <= max_chars:
+        return [piece]
+    out: list[str] = []
+    buf = ""
+    depth = 0
+    for ch in piece:
+        buf += ch
+        if ch in _OPEN_CHARS:
+            depth += 1
+        elif ch in _CLOSE_CHARS:
+            depth = max(0, depth - 1)
+        if depth == 0 and ch in _SOFT_CHARS and len(buf) >= max_chars * 0.55:
+            out.append(buf)
+            buf = ""
+        elif depth == 0 and len(buf) >= max_chars:
+            out.append(buf)
+            buf = ""
+        elif len(buf) >= max_chars * 1.6:
+            out.append(buf)
+            buf = ""
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _split_stream_text(text: str, max_chars: int) -> list[str]:
+    """按句末标点切块：引号/括号不跨块，长句在软标点处断开，过短块并回上一块。"""
+    normalized = (text or "").replace("\r\n", "\n").strip()
     if not normalized:
         return []
-    pieces = [
-        piece
-        for piece in re.split(r"(?<=[。！？!?；;\n])", normalized)
-        if piece.strip()
+    max_chars = max(20, int(max_chars))
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(
+            r"(?<=[。！？!?…])(?![”’」』）)】》\"'])|(?<=\n)", normalized
+        )
+        if sentence and sentence.strip()
     ]
+
     chunks: list[str] = []
     current = ""
-    for piece in pieces:
-        hard_parts = [
-            piece[index : index + max_chars]
-            for index in range(0, len(piece), max_chars)
-        ]
-        for part in hard_parts:
+    for sentence in sentences:
+        for part in _split_long_piece(sentence, max_chars):
             if current and len(current) + len(part) > max_chars:
                 chunks.append(current)
                 current = ""
-            current += part
-            if len(current) >= max_chars:
-                chunks.append(current)
-                current = ""
+            current = _join_parts(current, part)
     if current:
         chunks.append(current)
-    return chunks
+
+    merged: list[str] = []
+    for chunk in chunks:
+        if merged and (len(chunk) < 12 or chunk[0] in "，、；：,;:”’」』）)】》"):
+            merged[-1] = _join_parts(merged[-1], chunk)
+        else:
+            merged.append(chunk)
+    return [chunk for chunk in merged if chunk.strip()]
 
 
 def _strip_id3v2(audio: bytes) -> bytes:
@@ -498,20 +762,135 @@ def _strip_id3v2(audio: bytes) -> bytes:
     return audio[header_size:]
 
 
-def _stream_audio_chunk(
-    payload: SpeechRequest,
-    spec: ModelSpec,
-    text: str,
-) -> tuple[bytes, int]:
-    chunk_payload = payload.model_copy(update={"input": text, "stream": False})
-    waveform, sample_rate = _generate(chunk_payload, spec)
-    audio = _encode_audio(
-        _wav_bytes(waveform, sample_rate),
-        payload.response_format,
-        payload.speed,
-        sample_rate,
-    )
-    return audio, sample_rate
+def _as_float_array(waveform: Any):
+    """把模型输出统一成 float32 numpy（兼容 torch tensor / list）。"""
+    import numpy as np
+
+    if hasattr(waveform, "detach"):
+        waveform = waveform.detach().float().cpu().numpy()
+    return np.asarray(waveform, dtype=np.float32).reshape(-1)
+
+
+def _pcm16_stream_block(waveform: Any, sample_rate: int) -> bytes:
+    """float32 波形 -> 16bit 单声道 PCM；首尾各 12ms 淡入淡出，避免拼接阶跃。"""
+    import numpy as np
+
+    wf = _as_float_array(waveform).copy()
+    n = min(int(0.012 * sample_rate), max(1, len(wf) // 2))
+    if n > 1:
+        ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+        wf[:n] *= ramp
+        wf[-n:] *= ramp[::-1]
+    return (np.clip(wf, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+
+
+_MP3_BITRATES_V2_L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+_MP3_RATES_V2 = {24000: 2, 22050: 1, 16000: 0}
+_MP3_RATES_V1 = {48000: 1, 44100: 0, 32000: 2}
+
+
+class _Mp3Framer:
+    """把字节流切成完整 MP3 帧；不足一帧就攒着，保证每次 yield 都从帧头开始。"""
+
+    def __init__(self, min_frames: int = 8) -> None:
+        self.buf = bytearray()
+        self.min_bytes = 0
+        self.min_frames = min_frames
+        self.frame_bytes = 0
+        self.skip = 0
+
+    def _frame_len(self, hdr: bytes) -> int:
+        if len(hdr) < 4 or hdr[0] != 0xFF or (hdr[1] & 0xE0) != 0xE0:
+            return 0
+        version = (hdr[1] >> 3) & 0x03      # 3=MPEG1, 2=MPEG2, 0=MPEG2.5
+        layer = (hdr[1] >> 1) & 0x03        # 1=Layer III
+        if layer != 0x01:
+            return 0
+        bitrate_idx = (hdr[2] >> 4) & 0x0F
+        rate_idx = (hdr[2] >> 2) & 0x03
+        padding = (hdr[2] >> 1) & 0x01
+        if bitrate_idx == 0 or bitrate_idx == 15 or rate_idx == 3:
+            return 0
+        if version == 3:
+            rates = {48000: 1, 44100: 0, 32000: 2}
+            rate = [44100, 48000, 32000][rate_idx]
+            kbps = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320][bitrate_idx]
+            return int(144000 * kbps / rate) + padding
+        rates = {24000: 2, 22050: 1, 16000: 0}
+        rate = [22050, 24000, 16000][rate_idx]
+        kbps = _MP3_BITRATES_V2_L3[bitrate_idx]
+        return int(72000 * kbps / rate) + padding
+
+    def feed(self, data: bytes) -> list[bytes]:
+        self.buf.extend(data)
+        out: list[bytes] = []
+        # 跳过 ID3v2（如果有）
+        if self.skip == 0 and self.buf[:3] == b"ID3" and len(self.buf) >= 10:
+            size = ((self.buf[6] & 0x7F) << 21) | ((self.buf[7] & 0x7F) << 14) | \
+                   ((self.buf[8] & 0x7F) << 7) | (self.buf[9] & 0x7F)
+            self.skip = 10 + size
+        while True:
+            if self.skip:
+                if len(self.buf) < self.skip:
+                    return out
+                del self.buf[: self.skip]
+                self.skip = 0
+            if len(self.buf) < 4:
+                return out
+            if not self.frame_bytes:
+                flen = self._frame_len(bytes(self.buf[:4]))
+                if not flen:
+                    del self.buf[0]          # 找不到同步字，丢一个字节继续找
+                    continue
+                self.frame_bytes = flen
+            need = self.frame_bytes * self.min_frames
+            if len(self.buf) < need:
+                return out
+            out.append(bytes(self.buf[:need]))
+            del self.buf[:need]
+        return out
+
+    def flush(self) -> bytes:
+        rest = bytes(self.buf)
+        self.buf.clear()
+        return rest
+
+
+def _write_all(stream: Any, data: bytes) -> None:
+    """把 data 完整写入管道；pipe 的 write 可能短写，必须循环。"""
+    view = memoryview(data)
+    while view:
+        written = stream.write(view)
+        if written is None:
+            return
+        if written <= 0:
+            raise IOError("encoder stdin closed")
+        view = view[written:]
+
+
+def _stream_encoder_command(
+    response_format: str, speed: float, sample_rate: int
+) -> list[str]:
+    """单路编码器：所有分块的 PCM 依次喂进同一个 ffmpeg，只编码一次，接缝为零。"""
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-f", "s16le", "-ar", str(sample_rate), "-ac", "1", "-i", "pipe:0",
+        "-flush_packets", "1",
+    ]
+    tempo = _atempo_filter(speed)
+    if tempo:
+        command.extend(["-filter:a", tempo])
+    if response_format == "mp3":
+        # 管道输出时 Xing/Info 头里是占位时长，部分流式播放器会误判首帧而爆音
+        command.extend(["-c:a", "libmp3lame", "-b:a", "96k", "-write_xing", "0", "-f", "mp3"])
+    elif response_format == "opus":
+        command.extend(["-c:a", "libopus", "-b:a", "48k", "-f", "ogg"])
+    elif response_format == "aac":
+        command.extend(["-c:a", "aac", "-b:a", "96k", "-f", "adts"])
+    else:
+        command.extend(["-f", response_format])
+    command.append("pipe:1")
+    return command
 
 
 def _stream_speech_response(
@@ -528,48 +907,158 @@ def _stream_speech_response(
                 "WAV and FLAC need final file sizes and remain non-streaming"
             ),
         )
-    text_chunks = _split_stream_text(payload.input, payload.stream_chunk_chars)
+    text_chunks = _split_stream_text(_normalize_tts_text(payload.input), payload.stream_chunk_chars)
     if not text_chunks:
         raise HTTPException(status_code=400, detail="input must contain non-whitespace text")
 
-    # Generate the first segment before sending response headers so model/input
-    # errors still produce a normal JSON error instead of a truncated audio stream.
-    first_audio, sample_rate = _stream_audio_chunk(payload, spec, text_chunks[0])
+    # 第一块先算完：模型/输入错误仍能在响应头之前以 JSON 报错
+    first_wave, sample_rate = _generate(
+        payload.model_copy(update={"input": text_chunks[0], "stream": False}), spec
+    )
+    lead_silence = b"\x00\x00" * int(0.04 * sample_rate)   # 40ms 起始静音，吸收解码器预热
+    first_pcm = lead_silence + _pcm16_stream_block(first_wave, sample_rate)
 
-    def audio_iterator() -> Iterator[bytes]:
-        yield first_audio
+    headers = {
+        "Content-Disposition": (
+            f'inline; filename="{request_id}.{payload.response_format}"'
+        ),
+        "Cache-Control": "no-store",
+        "X-Accel-Buffering": "no",
+        "X-AI-Stack-Model": spec.id,
+        "X-AI-Stack-Sample-Rate": str(sample_rate),
+        "X-AI-Stack-Stream-Mode": "continuous-encoder",
+        "X-AI-Stack-Stream-Chunks": str(len(text_chunks)),
+        "X-Request-Id": request_id,
+    }
+    lexicon_hits = _lexicon_hits(payload.input)
+    if lexicon_hits:
+        headers["X-AI-Stack-Lexicon"] = quote("; ".join(lexicon_hits))
+    media_type = FORMAT_MEDIA_TYPES[payload.response_format]
+
+    # 分块之间补 90ms 静音，让每块像“一句话”自然收尾，避免块首爆破音被听成“吹话筒”
+    gap_bytes = (b"\x00\x00" * int(0.09 * sample_rate))
+
+    def remaining_pcm() -> Iterator[bytes]:
         for text_chunk in text_chunks[1:]:
-            audio, chunk_sample_rate = _stream_audio_chunk(payload, spec, text_chunk)
-            if payload.response_format == "mp3":
-                audio = _strip_id3v2(audio)
-            if chunk_sample_rate != sample_rate:
+            wave, chunk_rate = _generate(
+                payload.model_copy(update={"input": text_chunk, "stream": False}), spec
+            )
+            if chunk_rate != sample_rate:
                 raise RuntimeError(
                     "Qwen3-TTS changed sample rate during a streaming response"
                 )
-            yield audio
+            yield gap_bytes
+            yield _pcm16_stream_block(wave, chunk_rate)
 
-    return StreamingResponse(
-        audio_iterator(),
-        media_type=FORMAT_MEDIA_TYPES[payload.response_format],
-        headers={
-            "Content-Disposition": (
-                f'inline; filename="{request_id}.{payload.response_format}"'
-            ),
-            "Cache-Control": "no-store",
-            "X-Accel-Buffering": "no",
-            "X-AI-Stack-Model": spec.id,
-            "X-AI-Stack-Sample-Rate": str(sample_rate),
-            "X-AI-Stack-Stream-Mode": "segmented",
-            "X-AI-Stack-Stream-Chunks": str(len(text_chunks)),
-            "X-Request-Id": request_id,
-        },
+    if payload.response_format == "pcm":
+        def pcm_body() -> Iterator[bytes]:
+            collected = [first_pcm]
+            yield first_pcm
+            for part in remaining_pcm():
+                collected.append(part)
+                yield part
+            if payload.debug or _DEBUG_ALWAYS:
+                try:
+                    _debug_dump(request_id, "pcm", b"".join(collected))
+                except Exception:
+                    pass
+
+        return StreamingResponse(pcm_body(), media_type=media_type, headers=headers)
+
+    process = subprocess.Popen(
+        _stream_encoder_command(payload.response_format, payload.speed, sample_rate),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=0,
     )
+
+    def feed() -> None:
+        try:
+            _write_all(process.stdin, first_pcm)
+            for pcm in remaining_pcm():
+                _write_all(process.stdin, pcm)
+        except Exception:
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except Exception:
+                pass
+
+    debug_chunks: list[bytes] = []
+
+    def encoded_body() -> Iterator[bytes]:
+        worker = threading.Thread(target=feed, daemon=True)
+        worker.start()
+        try:
+            framer = _Mp3Framer() if payload.response_format == "mp3" else None
+            fd = process.stdout.fileno()
+            while True:
+                piece = os.read(fd, 65536)
+                if not piece:
+                    break
+                if framer is not None:
+                    for block in framer.feed(piece):
+                        if payload.debug or _DEBUG_ALWAYS:
+                            debug_chunks.append(block)
+                        yield block
+                else:
+                    if payload.debug or _DEBUG_ALWAYS:
+                        debug_chunks.append(piece)
+                    yield piece
+            if framer is not None:
+                tail = framer.flush()
+                if tail:
+                    if payload.debug or _DEBUG_ALWAYS:
+                        debug_chunks.append(tail)
+                    yield tail
+        finally:
+            try:
+                process.kill()
+            except Exception:
+                pass
+            if (payload.debug or _DEBUG_ALWAYS) and debug_chunks:
+                try:
+                    _debug_dump(request_id, payload.response_format, b"".join(debug_chunks))
+                except Exception as _e:
+                    print(f"[debug] dump failed: {_e}", flush=True)
+
+    return StreamingResponse(encoded_body(), media_type=media_type, headers=headers)
 
 
 @app.post("/v1/audio/speech")
 def speech(payload: SpeechRequest) -> Response:
     spec = _resolve_model(payload.model)
+    if payload.voice and _voice_path(payload.voice).is_file():
+        spec = next(item for item in MODEL_SPECS if item.kind == "voice_clone")
     request_id = "speech-" + uuid.uuid4().hex
+
+    cleaned = _normalize_tts_text(payload.input)
+    print(
+        f"[speech] id={request_id} model={spec.id} stream={payload.stream} "
+        f"chunk={payload.stream_chunk_chars} chars={len(cleaned)} text={cleaned[:40]!r}",
+        flush=True,
+    )
+    if not cleaned:
+        # 纯标点或空白：返回 200ms 静音，避免业务侧报错中断
+        import numpy as _np
+
+        silence = _np.zeros(int(0.2 * 24000), dtype=_np.float32)
+        audio = _encode_audio(_wav_bytes(silence, 24000), payload.response_format,
+                              payload.speed, 24000)
+        print(f"[speech] id={request_id} 输入无实义文本，返回静音", flush=True)
+        return Response(
+            content=audio,
+            media_type=FORMAT_MEDIA_TYPES[payload.response_format],
+            headers={
+                "Content-Disposition": f'inline; filename="{request_id}.{payload.response_format}"',
+                "X-AI-Stack-Model": spec.id,
+                "X-AI-Stack-Sample-Rate": "24000",
+                "X-Request-Id": request_id,
+                "X-AI-Stack-Silence": "empty-input",
+            },
+        )
     try:
         if payload.stream:
             return _stream_speech_response(payload, spec, request_id)
@@ -580,6 +1069,11 @@ def speech(payload: SpeechRequest) -> Response:
             payload.speed,
             sample_rate,
         )
+        if payload.debug or _DEBUG_ALWAYS:
+            try:
+                _debug_dump(request_id, payload.response_format, audio)
+            except Exception:
+                pass
         return Response(
             content=audio,
             media_type=FORMAT_MEDIA_TYPES[payload.response_format],
@@ -588,6 +1082,8 @@ def speech(payload: SpeechRequest) -> Response:
                 "X-AI-Stack-Model": spec.id,
                 "X-AI-Stack-Sample-Rate": str(sample_rate),
                 "X-Request-Id": request_id,
+                **({"X-AI-Stack-Lexicon": quote("; ".join(_lexicon_hits(payload.input)))}
+                   if _lexicon_hits(payload.input) else {}),
             },
         )
     except HTTPException:

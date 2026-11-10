@@ -463,37 +463,113 @@ def _clean_text(value: Any) -> str:
     return re.sub(r"<\|[^>]+\|>", "", str(value or "")).strip()
 
 
-def _seconds(value: Any) -> float:
+def _number(value: Any) -> float:
     try:
-        number = float(value)
+        return float(value)
     except (TypeError, ValueError):
         return 0.0
-    if number > 10000:
-        number = number / 1000.0
-    return round(number, 3)
 
 
-def _asr_segments(result: Any, language: str, duration: float) -> list[dict[str, Any]]:
-    first = result[0] if isinstance(result, list) and result else result if isinstance(result, dict) else {}
-    if not isinstance(first, dict):
-        return [{"segmentId": "chunk-001", "start": 0.0, "end": duration, "text": _clean_text(first), "language": language, "wordTimestamps": []}]
+def _milliseconds_to_seconds(value: Any) -> float:
+    """Convert FunASR ASR timestamps, which are always milliseconds, to seconds."""
+    return round(_number(value) / 1000.0, 3)
 
+
+def _seconds(value: Any) -> float:
+    """Normalize diarization timestamps, which the ModelScope pipeline returns in seconds."""
+    return round(_number(value), 3)
+
+
+def _timestamp_pairs_ms_to_seconds(value: Any) -> list[list[float]]:
+    converted: list[list[float]] = []
+    if not isinstance(value, list):
+        return converted
+    for item in value:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            converted.append([
+                _milliseconds_to_seconds(item[0]),
+                _milliseconds_to_seconds(item[1]),
+            ])
+    return converted
+
+
+def _sentence_text(item: dict[str, Any]) -> str:
+    value = item.get("text")
+    if value is None:
+        value = item.get("sentence")
+    if value is None:
+        value = item.get("text_seg")
+    if isinstance(value, list):
+        sentence_text = "".join(str(part) for part in value)
+    else:
+        sentence_text = str(value or "")
+    # runtime-SDK's stamp_sents uses whitespace-delimited tokens. Preserve a
+    # separator only between adjacent ASCII words; Chinese character tokens join.
+    if "text_seg" in item:
+        tokens = sentence_text.split()
+        sentence_text = ""
+        for token in tokens:
+            needs_space = (
+                bool(sentence_text)
+                and sentence_text[-1].isascii()
+                and sentence_text[-1].isalnum()
+                and token[0].isascii()
+                and token[0].isalnum()
+            )
+            sentence_text += (" " if needs_space else "") + token
+        sentence_text += str(item.get("punc") or "")
+    return _clean_text(sentence_text)
+
+
+def _sentence_records(first: dict[str, Any]) -> list[dict[str, Any]]:
     sentence_info = first.get("sentence_info")
     if isinstance(sentence_info, list) and sentence_info:
+        return [item for item in sentence_info if isinstance(item, dict)]
+    stamp_sents = first.get("stamp_sents")
+    if isinstance(stamp_sents, list) and stamp_sents:
+        return [item for item in stamp_sents if isinstance(item, dict)]
+    return []
+
+
+def _asr_segments(
+    result: Any,
+    language: str,
+    duration: float,
+    require_sentence_timestamps: bool = False,
+) -> list[dict[str, Any]]:
+    first = result[0] if isinstance(result, list) and result else result if isinstance(result, dict) else {}
+    if not isinstance(first, dict):
+        if require_sentence_timestamps:
+            raise HTTPException(status_code=502, detail="Paraformer returned no structured transcription result.")
+        return [{"segmentId": "chunk-001", "start": 0.0, "end": duration, "text": _clean_text(first), "language": language, "wordTimestamps": []}]
+
+    sentence_records = _sentence_records(first)
+    if sentence_records:
         segments = []
-        for index, item in enumerate(sentence_info, start=1):
-            if not isinstance(item, dict):
+        for index, item in enumerate(sentence_records, start=1):
+            sentence_text = _sentence_text(item)
+            if not sentence_text:
                 continue
+            timestamps = item.get("timestamp")
+            if timestamps is None:
+                timestamps = item.get("ts_list")
             segments.append({
                 "segmentId": f"chunk-{index:03d}",
-                "start": _seconds(item.get("start")),
-                "end": _seconds(item.get("end")),
-                "text": _clean_text(item.get("text")),
+                # sentence_info and runtime-SDK stamp_sents both use milliseconds.
+                "start": _milliseconds_to_seconds(item.get("start")),
+                "end": _milliseconds_to_seconds(item.get("end")),
+                "text": sentence_text,
                 "language": language,
-                "wordTimestamps": item.get("timestamp") if isinstance(item.get("timestamp"), list) else [],
+                "wordTimestamps": _timestamp_pairs_ms_to_seconds(timestamps),
             })
         if segments:
             return segments
+
+    if require_sentence_timestamps:
+        raise HTTPException(
+            status_code=502,
+            detail="Paraformer returned no sentence_info/stamp_sents; refusing to fabricate subtitle timing.",
+        )
 
     return [{
         "segmentId": "chunk-001",
@@ -501,8 +577,25 @@ def _asr_segments(result: Any, language: str, duration: float) -> list[dict[str,
         "end": duration,
         "text": _clean_text(first.get("text")),
         "language": language,
-        "wordTimestamps": first.get("timestamp") if isinstance(first.get("timestamp"), list) else [],
+        "wordTimestamps": _timestamp_pairs_ms_to_seconds(first.get("timestamp")),
     }]
+
+
+def _asr_text(result: Any, segments: list[dict[str, Any]]) -> str:
+    first = result[0] if isinstance(result, list) and result else result if isinstance(result, dict) else {}
+    source_text = _clean_text(first.get("text")) if isinstance(first, dict) else _clean_text(first)
+    segment_text = "".join(str(item.get("text", "")) for item in segments).strip()
+    # FunASR may move punctuation to an adjacent sentence boundary while retaining
+    # every recognized token. Coverage therefore compares letters/numbers, not
+    # whitespace, punctuation placement, or ASCII case.
+    normalized_source = re.sub(r"[\W_]+", "", source_text).casefold()
+    normalized_segments = re.sub(r"[\W_]+", "", segment_text).casefold()
+    if source_text and normalized_source != normalized_segments:
+        raise HTTPException(
+            status_code=502,
+            detail="Sentence timestamps do not cover the complete Paraformer transcript.",
+        )
+    return source_text or segment_text
 
 
 def _speaker_label(raw: Any, index: int) -> str:
@@ -619,12 +712,28 @@ def _transcribe_path(
             if pipeline["engine"] == "sensevoice":
                 generate_kwargs["language"] = language
                 generate_kwargs["use_itn"] = True
+            if pipeline["engine"] == "paraformer":
+                # FunASR only constructs sentence_info when explicitly requested.
+                generate_kwargs["sentence_timestamp"] = True
             asr_result = asr.generate(**generate_kwargs)
-    asr_segments = _asr_segments(asr_result, language, duration)
+    asr_segments = _asr_segments(
+        asr_result,
+        language,
+        duration,
+        require_sentence_timestamps=pipeline["engine"] == "paraformer",
+    )
+    transcript_text = _asr_text(asr_result, asr_segments)
+    first_result = asr_result[0] if isinstance(asr_result, list) and asr_result else asr_result
+    logger.info(
+        "ASR sentence timestamps pipeline=%s source=%s count=%d",
+        pipeline["id"],
+        "sentence_info" if isinstance(first_result, dict) and first_result.get("sentence_info") else "stamp_sents",
+        len(asr_segments),
+    )
 
     if not pipeline["diarization"]:
         return {
-            "text": "".join(item.get("text", "") for item in asr_segments).strip(),
+            "text": transcript_text,
             "duration": duration,
             "pipeline": pipeline,
             "asrSegments": asr_segments,
@@ -645,7 +754,7 @@ def _transcribe_path(
     except Exception as error:
         diarization_segments = [{"speakerLabel": "SPEAKER_00", "start": 0.0, "end": duration, "error": str(error)}]
     return {
-        "text": "".join(item.get("text", "") for item in asr_segments).strip(),
+        "text": transcript_text,
         "duration": duration,
         "pipeline": pipeline,
         "asrSegments": asr_segments,
@@ -664,6 +773,82 @@ def _write_pcm_wave(pcm: bytes, sample_rate: int, channels: int = 1) -> str:
     return temp_path
 
 
+ASR_HOTWORD_PATH = Path(os.environ.get("AI_STACK_ASR_HOTWORDS", "/cache/asr_hotwords.txt"))
+_ASR_HOTWORD_CACHE: dict[str, Any] = {"mtime": None, "terms": []}
+
+
+def _shared_hotwords() -> list[str]:
+    """从共享词表读取热词（每行一个，也支持逗号/顿号分隔），按 mtime 热更新。"""
+    try:
+        stat = ASR_HOTWORD_PATH.stat()
+    except OSError:
+        return []
+    if _ASR_HOTWORD_CACHE["mtime"] != stat.st_mtime:
+        try:
+            raw = ASR_HOTWORD_PATH.read_text(encoding="utf-8")
+        except Exception:
+            return []
+        terms = [term.strip() for term in re.split(r"[,，、;；\n]+", raw) if term.strip()]
+        _ASR_HOTWORD_CACHE["terms"] = list(dict.fromkeys(terms))
+        _ASR_HOTWORD_CACHE["mtime"] = stat.st_mtime
+    return _ASR_HOTWORD_CACHE["terms"]
+
+
+ASR_CORRECTION_PATH = Path(os.environ.get("AI_STACK_ASR_CORRECTIONS", "/cache/asr_corrections.json"))
+_ASR_CORRECTION_CACHE: dict[str, Any] = {"mtime": None, "pairs": []}
+
+
+def _load_corrections() -> list[tuple[str, str]]:
+    """读取识别结果纠错表（错->对），按 mtime 热更新，长词优先。"""
+    try:
+        stat = ASR_CORRECTION_PATH.stat()
+    except OSError:
+        return []
+    if _ASR_CORRECTION_CACHE["mtime"] != stat.st_mtime:
+        pairs: list[tuple[str, str]] = []
+        try:
+            data = json.loads(ASR_CORRECTION_PATH.read_text(encoding="utf-8"))
+            raw = data.get("entries", data) if isinstance(data, dict) else {}
+            items = raw.items() if isinstance(raw, dict) else [
+                (item.get("wrong", ""), item.get("right", "")) for item in raw
+            ]
+            for wrong, right in items:
+                wrong = str(wrong).strip()
+                right = str(right).strip()
+                if wrong and right:
+                    pairs.append((wrong, right))
+        except Exception:
+            pairs = []
+        pairs.sort(key=lambda item: len(item[0]), reverse=True)
+        _ASR_CORRECTION_CACHE["pairs"] = pairs
+        _ASR_CORRECTION_CACHE["mtime"] = stat.st_mtime
+    return _ASR_CORRECTION_CACHE["pairs"]
+
+
+def _apply_corrections(result: dict[str, Any]) -> dict[str, Any]:
+    """对识别结果做同音/错字纠正（对任何管线都生效）。"""
+    pairs = _load_corrections()
+    if not pairs or not isinstance(result, dict):
+        return result
+    hits: list[str] = []
+
+    def fix(text: str) -> str:
+        for wrong, right in pairs:
+            if wrong in text:
+                text = text.replace(wrong, right)
+                hits.append(f"{wrong}=>{right}")
+        return text
+
+    if isinstance(result.get("text"), str):
+        result["text"] = fix(result["text"])
+    for segment in result.get("asrSegments", []) or []:
+        if isinstance(segment, dict) and isinstance(segment.get("text"), str):
+            segment["text"] = fix(segment["text"])
+    if hits:
+        result["corrections"] = list(dict.fromkeys(hits))
+    return result
+
+
 def _transcript_text(result: dict[str, Any]) -> str:
     return "".join(str(item.get("text", "")) for item in result.get("asrSegments", [])).strip()
 
@@ -678,6 +863,12 @@ async def _transcribe_upload(
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
+    # 合并共享热词表（/cache/asr_hotwords.txt），仅对支持 prompt 热词的管线生效
+    if pipeline["promptHotwords"]:
+        shared = _shared_hotwords()
+        if shared:
+            merged = [term.strip() for term in re.split(r"[,，、;；\n]+", prompt or "") if term.strip()]
+            prompt = ",".join(dict.fromkeys(merged + shared))
     request_warning = ""
     if pipeline["id"] == "domain-zh" and not prompt.strip():
         request_warning = "domain-zh received no prompt; decoding continues with only the mounted N-gram model."
@@ -692,7 +883,8 @@ async def _transcribe_upload(
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
             handle.write(payload)
             temp_path = handle.name
-        return await asyncio.to_thread(_transcribe_path, temp_path, language, speaker_count, pipeline, prompt)
+        result = await asyncio.to_thread(_transcribe_path, temp_path, language, speaker_count, pipeline, prompt)
+        return _apply_corrections(result)
     except HTTPException:
         raise
     except Exception as error:

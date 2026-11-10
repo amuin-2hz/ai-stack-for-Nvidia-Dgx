@@ -11,6 +11,7 @@ import type {
   ContainerRecord, ImportPreview, SystemCheck, NetworkSettings, ProxySettings, WorkbenchSettings, RuntimeHint
 } from '../types';
 import { messages, statusCopy } from '../locales';
+import { defaultThinkingMode } from '../modelDefaults';
 
 /* ── reactive state ──────────────────────────── */
 export const locale = ref<Locale>((localStorage.getItem('locale') as Locale) || 'zh-CN');
@@ -721,6 +722,7 @@ export function deploymentArgs() {
 
 export function applyDeploymentArgs(args?: Record<string, unknown>) {
   if (!args) return;
+  deployEnableThinking.value = defaultThinkingMode(selectedDeployModel.value);
   if (Array.isArray(args.gpu_device_ids)) deployGpuDeviceIds.value = args.gpu_device_ids.map(String);
   deployContextLength.value = finiteNumber(args.max_model_len, deployContextLength.value);
   const gpuUtilization = finiteNumber(args.gpu_memory_utilization, deployGpuUtil.value / 100);
@@ -813,6 +815,7 @@ export function selectDeployModel(model: ModelRecord) {
   if (preferred) selectedContainerKey.value = preferred.key;
   deployContextLength.value = model.inference?.context_length?.default ?? deployContextLength.value;
   trtMaxNumTokens.value = model.inference?.context_length?.default ?? trtMaxNumTokens.value;
+  deployEnableThinking.value = defaultThinkingMode(model);
   clampDeployParamsForModel();
 }
 
@@ -946,15 +949,54 @@ export async function refresh() {
     .finally(() => {
       if (modelCatalogRequest === latestModelCatalogRequest) modelCatalogLoading.value = false;
     });
+  const deploymentRequest = api<{ deployments: DeploymentRecord[] }>('/deployments')
+    .catch(() => ({ deployments: [] }))
+    .then((payload) => {
+      deployments.value = payload.deployments ?? [];
+      return payload;
+    });
+  const taskRequest = api<{ tasks: TaskRecord[] }>('/tasks')
+    .catch(() => ({ tasks: [] }))
+    .then((payload) => {
+      tasks.value = payload.tasks ?? [];
+      return payload;
+    });
+  const systemRequest = api<SystemCheck>('/system/check')
+    .catch(() => emptySystemCheck())
+    .then((payload) => {
+      system.value = payload;
+      return payload;
+    });
+  const networkRequest = api<NetworkSettings>('/settings/network')
+    .catch(() => null)
+    .then((payload) => {
+      if (payload) network.value = payload;
+      return payload;
+    });
+  const proxyRequest = api<ProxySettings>('/settings/proxy')
+    .catch(() => null)
+    .then((payload) => {
+      proxySettings.value = payload;
+      return payload;
+    });
+  const workbenchRequest = api<WorkbenchSettings>('/settings/workbench')
+    .catch(() => null)
+    .then((payload) => {
+      workbenchSettings.value = payload;
+      managementPort.value = payload?.management_port ?? 8888;
+      return payload;
+    });
+  const containerRequest = api<{ containers: ContainerRecord[] }>('/containers')
+    .catch(() => ({ containers: [] }))
+    .then((payload) => {
+      const nextContainers = payload.containers ?? [];
+      // Docker may briefly respond slowly after resume; retain the last known list meanwhile.
+      if (nextContainers.length > 0 || containers.value.length === 0) containers.value = nextContainers;
+      return payload;
+    });
   const [modelPayload, deploymentPayload, taskPayload, systemPayload, networkPayload, proxyPayload, workbenchPayload, containerPayload] = await Promise.all([
-    modelRequest,
-    api<{ deployments: DeploymentRecord[] }>('/deployments').catch(() => ({ deployments: [] })),
-    api<{ tasks: TaskRecord[] }>('/tasks').catch(() => ({ tasks: [] })),
-    api<SystemCheck>('/system/check').catch(() => emptySystemCheck()),
-    api<NetworkSettings>('/settings/network').catch(() => null),
-    api<ProxySettings>('/settings/proxy').catch(() => null),
-    api<WorkbenchSettings>('/settings/workbench').catch(() => null),
-    api<{ containers: ContainerRecord[] }>('/containers').catch(() => ({ containers: [] }))
+    modelRequest, deploymentRequest, taskRequest, systemRequest,
+    networkRequest, proxyRequest, workbenchRequest, containerRequest
   ]);
   models.value = modelPayload.models ?? [];
   deployments.value = deploymentPayload.deployments ?? [];

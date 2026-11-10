@@ -32,6 +32,7 @@ test("deployment validation resolves Qwen parser before planning or starting", (
   assert.equal(validated.detail, undefined);
   assert.deepEqual(validated.args, {
     enable_auto_tool_choice: true,
+    enable_thinking: false,
     tool_call_parser: "qwen3_coder",
     reasoning_parser: "qwen3"
   });

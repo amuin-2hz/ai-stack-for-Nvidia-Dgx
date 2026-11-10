@@ -102,7 +102,7 @@ test("vLLM uses explicit tool-call and reasoning parsers", () => {
   assert.equal(command.env.VLLM_REASONING_PARSER, "qwen3");
 });
 
-test("vLLM applies an explicit default thinking mode without changing omitted defaults", () => {
+test("vLLM explicitly disables thinking for Qwen3 27B/28B while preserving other omitted defaults", () => {
   const disabled = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", { enable_thinking: false });
   assert.match(disabled.args.join(" "), /--default-chat-template-kwargs "\$VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS"/);
   assert.equal(disabled.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, JSON.stringify({ enable_thinking: false }));
@@ -110,7 +110,10 @@ test("vLLM applies an explicit default thinking mode without changing omitted de
   const enabled = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", { enable_thinking: true });
   assert.equal(enabled.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, JSON.stringify({ enable_thinking: true }));
 
-  const inherited = runtimeCommandFor("vllm", "qwen3.8", "qwen3.8", {});
+  const modelDefault = runtimeCommandFor("vllm", "qwen3.8-27b-nvfp4", "qwen3.8-27b-nvfp4", {});
+  assert.equal(modelDefault.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, JSON.stringify({ enable_thinking: false }));
+
+  const inherited = runtimeCommandFor("vllm", "qwen3.8-9b", "qwen3.8-9b", {});
   assert.doesNotMatch(inherited.args.join(" "), /--default-chat-template-kwargs/);
   assert.equal(inherited.env.VLLM_DEFAULT_CHAT_TEMPLATE_KWARGS, undefined);
 });

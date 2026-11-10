@@ -16,6 +16,8 @@ let compactSidebarQuery: MediaQueryList | null = null;
 
 /** 轮询定时器 ID */
 let refreshTimer: number | null = null;
+let lastForegroundRefresh = 0;
+let refreshesInFlight = 0;
 
 /**
  * 根据媒体查询结果同步侧边栏折叠状态。
@@ -23,6 +25,26 @@ let refreshTimer: number | null = null;
  */
 function syncSidebarMode(event?: MediaQueryListEvent) {
   sidebarCollapsed.value = event ? event.matches : !!compactSidebarQuery?.matches;
+}
+
+function refreshVisibleState(force = false) {
+  if (refreshesInFlight === 0 || force) {
+    refreshesInFlight += 1;
+    void refresh().finally(() => { refreshesInFlight = Math.max(0, refreshesInFlight - 1); });
+  }
+  if (view.value === 'tasks' && selectedTaskId.value) void loadTaskLog();
+  if ((view.value === 'deploy' || view.value === 'load' || view.value === 'services') && !logCollapsed.value) {
+    const logName = selectedLogContainer.value || (selectedContainer.value && selectedContainer.value.state !== 'missing' ? actionTargetName(selectedContainer.value) : '');
+    if (logName) void loadContainerLogs(logName);
+  }
+}
+
+function refreshAfterForeground() {
+  if (document.visibilityState === 'hidden') return;
+  const now = Date.now();
+  if (now - lastForegroundRefresh < 750) return;
+  lastForegroundRefresh = now;
+  refreshVisibleState(true);
 }
 
 /**
@@ -35,19 +57,23 @@ export function useLifecycle() {
     syncSidebarMode();
     compactSidebarQuery.addEventListener('change', syncSidebarMode);
 
-    void refresh();
+    lastForegroundRefresh = Date.now();
+    refreshVisibleState();
+    document.addEventListener('visibilitychange', refreshAfterForeground);
+    window.addEventListener('focus', refreshAfterForeground);
+    window.addEventListener('pageshow', refreshAfterForeground);
+    window.addEventListener('online', refreshAfterForeground);
     refreshTimer = window.setInterval(() => {
-      void refresh();
-      if (view.value === 'tasks' && selectedTaskId.value) void loadTaskLog();
-      if ((view.value === 'deploy' || view.value === 'load' || view.value === 'services') && !logCollapsed.value) {
-        const logName = selectedLogContainer.value || (selectedContainer.value && selectedContainer.value.state !== 'missing' ? actionTargetName(selectedContainer.value) : '');
-        if (logName) void loadContainerLogs(logName);
-      }
+      if (document.visibilityState !== 'hidden') refreshVisibleState();
     }, 5000);
   });
 
   onBeforeUnmount(() => {
     compactSidebarQuery?.removeEventListener('change', syncSidebarMode);
+    document.removeEventListener('visibilitychange', refreshAfterForeground);
+    window.removeEventListener('focus', refreshAfterForeground);
+    window.removeEventListener('pageshow', refreshAfterForeground);
+    window.removeEventListener('online', refreshAfterForeground);
     if (refreshTimer !== null) window.clearInterval(refreshTimer);
   });
 }
