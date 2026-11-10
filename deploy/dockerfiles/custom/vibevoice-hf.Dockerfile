@@ -6,6 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV HF_HOME=/cache/huggingface
 ENV MODELSCOPE_CACHE=/cache/modelscope
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV TRANSFORMERS_TRUST_REMOTE_CODE=1
 
 RUN apt-get update \
