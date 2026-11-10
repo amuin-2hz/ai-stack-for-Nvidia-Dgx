@@ -4,6 +4,7 @@ ARG PYTORCH_BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
 FROM ${ARM64_RUNTIME_DEPS_IMAGE} AS runtime-deps
 FROM ${PYTORCH_BASE_IMAGE}
 
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1

@@ -2,6 +2,7 @@ ARG PYTORCH_BASE_IMAGE=nvcr.io/nvidia/pytorch:25.04-py3
 FROM ${PYTORCH_BASE_IMAGE}
 
 WORKDIR /app
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV HF_HUB_OFFLINE=1
